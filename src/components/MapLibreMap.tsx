@@ -849,7 +849,9 @@ export default function MapLibreMap() {
       startOrbit(center);
     }
     // inside startMission, after setMissionActive(true)
-    const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    // const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+
     setWs(socket);
 
     socket.onopen = () => {
