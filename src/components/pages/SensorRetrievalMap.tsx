@@ -1,15 +1,14 @@
 // src/components/pages/SensorRetrievalPage.tsx
 import React from 'react';
 import { Link, Routes, Route, useLocation } from 'react-router-dom';
-import CategoryMap from '../MapLibreMap';
-import IndividualMap from '../MapLibreMapCat';
+import CategoryMap from '../MapLibreMapCat';
+import IndividualMap from '../MapLibreMap';
 // import CombinedMap from './CombinedMap'; // create later
 
 export default function SensorRetrievalPage() {
   const location = useLocation();
   const atRoot =
-    location.pathname === '/sensor-retrieval' ||
-    location.pathname === '/sensor-retrieval/';
+    location.pathname === '/sensor-retrieval' || location.pathname === '/sensor-retrieval/';
 
   const variants = [
     {

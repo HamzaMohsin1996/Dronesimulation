@@ -587,52 +587,52 @@ export default function ReengagementMap() {
 
   // ---------- Detections (mock) + annotations layer ----------
   // When mission is active, periodically add fake detections near the selected target
-  useEffect(() => {
-    if (!missionActiveRef.current) return;
-    if (inTransit) return;
-    if (!droneMarkerRef.current) return;
-    const id = setInterval(() => {
-      // inside your detection interval effect:
-      const area = missionGeom?.shape; // already a Polygon (circle buffer, corridor, FOI)
-      if (!area) return;
+  // useEffect(() => {
+  //   if (!missionActiveRef.current) return;
+  //   if (inTransit) return;
+  //   if (!droneMarkerRef.current) return;
+  //   const id = setInterval(() => {
+  //     // inside your detection interval effect:
+  //     const area = missionGeom?.shape; // already a Polygon (circle buffer, corridor, FOI)
+  //     if (!area) return;
 
-      // pick one random point inside area
-      const pts = turf.randomPoint(1, { bbox: turf.bbox(area) }).features;
-      let pt = pts[0];
-      if (!turf.booleanPointInPolygon(pt, area)) {
-        // retry until point is inside
-        for (let i = 0; i < 5; i++) {
-          const retry = turf.randomPoint(1, { bbox: turf.bbox(area) }).features[0];
-          if (turf.booleanPointInPolygon(retry, area)) {
-            pt = retry;
-            break;
-          }
-        }
-      }
+  //     // pick one random point inside area
+  //     const pts = turf.randomPoint(1, { bbox: turf.bbox(area) }).features;
+  //     let pt = pts[0];
+  //     if (!turf.booleanPointInPolygon(pt, area)) {
+  //       // retry until point is inside
+  //       for (let i = 0; i < 5; i++) {
+  //         const retry = turf.randomPoint(1, { bbox: turf.bbox(area) }).features[0];
+  //         if (turf.booleanPointInPolygon(retry, area)) {
+  //           pt = retry;
+  //           break;
+  //         }
+  //       }
+  //     }
 
-      const coord = pt.geometry.coordinates as Coord;
-      const ts = Date.now();
-      const labels: DetectionEvent['label'][] = ['fire', 'chemical', 'person'];
-      const label = labels[Math.floor(Math.random() * labels.length)];
+  //     const coord = pt.geometry.coordinates as Coord;
+  //     const ts = Date.now();
+  //     const labels: DetectionEvent['label'][] = ['fire', 'chemical', 'person'];
+  //     const label = labels[Math.floor(Math.random() * labels.length)];
 
-      const newEvent: DetectionEvent = {
-        id: `${ts}-${label}`,
-        ts,
-        label,
-        score: 0.9,
-        coord,
-        seen: false,
-      };
+  //     const newEvent: DetectionEvent = {
+  //       id: `${ts}-${label}`,
+  //       ts,
+  //       label,
+  //       score: 0.9,
+  //       coord,
+  //       seen: false,
+  //     };
 
-      setEvents((prev) => {
-        const next = [...prev, newEvent];
-        setNewEventToast(newEvent); // show the temporary toast (make sure you have const [newEventToast,setNewEventToast] = useState<DetectionEvent|null>(null);)
-        setUnreadCount((c) => c + 1); // optional unread badge (if you added unread state)
-        return next;
-      });
-    }, 4000);
-    return () => clearInterval(id);
-  }, [missionActive, inTransit, missionGeom]);
+  //     setEvents((prev) => {
+  //       const next = [...prev, newEvent];
+  //       setNewEventToast(newEvent); // show the temporary toast (make sure you have const [newEventToast,setNewEventToast] = useState<DetectionEvent|null>(null);)
+  //       setUnreadCount((c) => c + 1); // optional unread badge (if you added unread state)
+  //       return next;
+  //     });
+  //   }, 4000);
+  //   return () => clearInterval(id);
+  // }, [missionActive, inTransit, missionGeom]);
 
   // Push events into the "annotations" source whenever they change
   // Push *filtered* events into the map
@@ -828,19 +828,6 @@ export default function ReengagementMap() {
         else {
           coord = missionGeom?.center ?? (mapRef.current?.getCenter().toArray() as Coord);
         }
-
-        setEvents((prev) => [
-          ...prev,
-          {
-            id: `snap-${ts}`,
-            ts,
-            label: 'snapshot',
-            score: 1,
-            coord, // ✅ now tied to actual drone path
-            seen: false,
-            thumbnail: snap,
-          },
-        ]);
       }
     };
 

@@ -19,45 +19,8 @@ import EventFilters from './EventFilters';
 import { featureCollection, point, centroid, distance } from '@turf/turf';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { categoryIcons } from './mapicons'; // "events" shows the normal points, "categories" shows category clusters
-
-function clusterByCategory(events: DetectionEvent[], radiusMeters = 200): Feature<Point>[] {
-  const grouped: Record<string, { center: [number, number]; members: DetectionEvent[] }[]> = {};
-
-  for (const e of events) {
-    const cat = e.label;
-    grouped[cat] ??= [];
-    const p = point(e.coord);
-    let placed = false;
-
-    for (const g of grouped[cat]) {
-      if (distance(point(g.center), p, { units: 'meters' }) < radiusMeters) {
-        g.members.push(e);
-        g.center = centroid(featureCollection(g.members.map((m) => point(m.coord)))).geometry
-          .coordinates as [number, number];
-        placed = true;
-        break;
-      }
-    }
-
-    if (!placed) grouped[cat].push({ center: e.coord, members: [e] });
-  }
-
-  return Object.entries(grouped).flatMap(([cat, clusters]) =>
-    clusters.map((c) => ({
-      type: 'Feature' as const,
-      geometry: { type: 'Point', coordinates: c.center },
-      properties: {
-        label: cat,
-        count: c.members.length,
-        // ✅ force every thumbnail to a plain string
-        thumbnails: c.members
-          .map((m) => (m.thumbnail ? String(m.thumbnail) : null))
-          .filter((t): t is string => !!t),
-        timestamps: c.members.map((m) => m.ts),
-      },
-    }))
-  );
-}
+import EventFeed from './EventFeed';
+import { iconMap } from '../shared/iconMap';
 
 // ---------------- Config ----------------
 type Coord = [number, number];
@@ -151,28 +114,11 @@ export default function MapLibreMap() {
       return next;
     });
   };
-  // 🔌 Connect to YOLO WebSocket backend
-  // useEffect(() => {
-  //   const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
-  //   ws.onopen = () => console.log('🔌 WebSocket connected');
 
-  //   ws.onmessage = (msg) => {
-  //     const data = JSON.parse(msg.data);
-  //     console.log('📩 Incoming from backend:', data);
-
-  //     if (data.events && data.events.length > 0) {
-  //       setEvents((prev) => [...prev, ...data.events]); // ✅ store backend detections
-  //     }
-  //   };
-
-  //   ws.onclose = () => console.log('🔌 WebSocket closed');
-  //   return () => ws.close();
-  // }, []);
-
-  // const [viewMode, setViewMode] = useState<'events' | 'categories'>('events');
   useEffect(() => {
     missionActiveRef.current = missionActive;
   }, [missionActive]);
+  // ---------- Map init ----------
   // ---------- Map init ----------
   useEffect(() => {
     if (!mapEl.current) return;
@@ -181,7 +127,7 @@ export default function MapLibreMap() {
       container: mapEl.current,
       style: {
         version: 8,
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources: {
           osm: {
             type: 'raster',
@@ -208,14 +154,8 @@ export default function MapLibreMap() {
               properties: {},
             },
           },
-          annotations: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-            cluster: true, // ✅ enable clustering
-            clusterRadius: 50, // pixels around which points will group
-            clusterMaxZoom: 14, // stop clustering beyond this zoom
-          },
-          annotationsCategory: {
+          // ✅ only one source for detected events
+          pinnedEvents: {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] },
           },
@@ -248,126 +188,6 @@ export default function MapLibreMap() {
             source: 'remaining',
             paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
           },
-
-          // --- 🔵 Category cluster background (colored circle)
-          {
-            id: 'category-clusters',
-            type: 'circle',
-            source: 'annotationsCategory',
-            paint: {
-              'circle-color': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                '#ef4444',
-                'person',
-                '#0ea5e9',
-                'chemical',
-                '#eab308',
-                'snapshot',
-                '#22c55e',
-                /* default */ '#6b7280',
-              ],
-              'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 22, 10, 28, 20, 34],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-
-          // --- 🖼 icon (white SVG) drawn on top of the circle
-          {
-            id: 'category-icons',
-            type: 'symbol',
-            source: 'annotationsCategory',
-            layout: {
-              'icon-image': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                'cat-fire',
-                'person',
-                'cat-person',
-                'chemical',
-                'cat-chemical',
-                'snapshot',
-                'cat-snapshot',
-                '', // fallback
-              ],
-              'icon-size': 0.7,
-              'icon-allow-overlap': true,
-            },
-          },
-
-          // --- 🔢 count number over everything
-          {
-            id: 'category-count',
-            type: 'symbol',
-            source: 'annotationsCategory',
-            layout: {
-              'text-field': '{count}', // show the count
-              'text-size': 11, // smaller font
-              'text-font': ['Open Sans Bold'],
-              'text-allow-overlap': true,
-              'text-offset': [0.7, -0.7], // move to top-right of the circle
-              'text-anchor': 'center',
-            },
-            paint: {
-              'text-color': '#fff',
-              'text-halo-color': '#000', // optional: small outline for readability
-              'text-halo-width': 1,
-            },
-          },
-          {
-            id: 'annots',
-            type: 'circle',
-            source: 'annotations',
-            // show only real (unclustered) events
-            filter: ['!', ['has', 'point_count']],
-            paint: {
-              'circle-radius': 8,
-              'circle-color': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                '#ef4444',
-                'people',
-                '#0ea5e9',
-                'person',
-                '#0ea5e9',
-                'chemical',
-                '#eab308',
-                'snapshot',
-                '#22c55e',
-                '#6b7280',
-              ],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-          {
-            id: 'clusters',
-            type: 'circle',
-            source: 'annotations',
-            filter: ['has', 'point_count'], // only clustered features
-            paint: {
-              'circle-color': '#0ea5e9',
-              'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-          {
-            id: 'cluster-count',
-            type: 'symbol',
-            source: 'annotations',
-            filter: ['has', 'point_count'],
-            layout: {
-              'text-field': '{point_count_abbreviated}',
-              'text-font': ['Open Sans Bold'],
-              'text-size': 14,
-            },
-            paint: { 'text-color': '#fff' },
-          },
         ],
       },
       center: [11.506, 48.718],
@@ -375,6 +195,7 @@ export default function MapLibreMap() {
     });
 
     m.on('load', () => {
+      // Drone ports
       initialDronePorts.forEach(({ coord }) => {
         const el = document.createElement('div');
         el.style.width = '30px';
@@ -389,31 +210,273 @@ export default function MapLibreMap() {
         el.appendChild(img);
         new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
-      // Load SVG icons (white fill so they stand out on coloured circle)
-      Object.entries(categoryIcons).forEach(([key, { svg: Icon }]) => {
-        const markup = renderToStaticMarkup(<Icon color="#fff" size={28} />);
-        const blob = new Blob([markup], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const img = new Image(32, 32);
 
-        img.onload = () => {
-          if (!m.hasImage(`cat-${key}`)) {
-            m.addImage(`cat-${key}`, img, { pixelRatio: 2 });
-          }
-          URL.revokeObjectURL(url);
-        };
+      // Load SVG icons for categories
+      // Object.entries(categoryIcons).forEach(([key, { svg: Icon }]) => {
+      //   const markup = renderToStaticMarkup(<Icon color="#fff" size={28} />);
+      //   const blob = new Blob([markup], { type: 'image/svg+xml' });
+      //   const url = URL.createObjectURL(blob);
+      //   const img = new Image(32, 32);
 
-        img.src = url;
-      });
+      //   img.onload = () => {
+      //     if (!m.hasImage(`cat-${key}`)) {
+      //       m.addImage(`cat-${key}`, img, { pixelRatio: 2 });
+      //     }
+      //     URL.revokeObjectURL(url);
+      //   };
+
+      //   img.src = url;
+      // });
     });
 
     mapRef.current = m;
 
-    // ✅ Correct cleanup
     return () => {
       m.remove();
     };
   }, []);
+  // 👇 Add this effect inside your component
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+
+    // clear old markers
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current = [];
+
+    // filter events if needed
+    const filtered = allEvents.filter(
+      (ev) => activeFilters.size === 0 || activeFilters.has(ev.label)
+    );
+
+    filtered.forEach((ev) => {
+      const el = document.createElement('div');
+      el.style.fontSize = '28px';
+      el.style.cursor = 'pointer';
+      el.innerText = iconMap[ev.label]?.icon ?? '❓';
+
+      // --- Hover preview popup ---
+      let popup: maplibregl.Popup | null = null;
+
+      el.addEventListener('mouseenter', () => {
+        if (popup) return;
+        popup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 25,
+        })
+          .setLngLat(ev.coord)
+          .setHTML(
+            `
+        <strong>${ev.label.toUpperCase()}</strong><br/>
+        ${new Date(ev.ts).toLocaleTimeString()}<br/>
+        ${
+          ev.thumbnail
+            ? `<img src="${ev.thumbnail}" style="max-width:120px;border-radius:4px;margin-top:4px"/>`
+            : ''
+        }
+      `
+          )
+          .addTo(m);
+      });
+
+      el.addEventListener('mouseleave', () => {
+        if (popup) {
+          popup.remove();
+          popup = null;
+        }
+      });
+
+      // --- Full preview modal on click ---
+      el.addEventListener('click', () => {
+        if (popup) {
+          popup.remove();
+          popup = null;
+        }
+        // remove old modal if it exists
+        const existing = document.getElementById('event-modal');
+        if (existing) existing.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'event-modal';
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100vw';
+        modal.style.height = '100vh';
+        modal.style.background = 'rgba(0,0,0,0.9)';
+        modal.style.display = 'flex';
+        modal.style.flexDirection = 'column';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.zIndex = '9999';
+        modal.style.color = 'white';
+        modal.style.padding = '20px';
+        modal.style.overflow = 'auto';
+
+        // close button
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '20px';
+        closeBtn.style.right = '30px';
+        closeBtn.style.fontSize = '28px';
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.border = 'none';
+        closeBtn.style.color = 'white';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.addEventListener('click', () => modal.remove());
+        modal.appendChild(closeBtn);
+
+        // event details
+        const title = document.createElement('h2');
+        title.textContent = ev.label.toUpperCase();
+        modal.appendChild(title);
+
+        const time = document.createElement('p');
+        time.textContent = new Date(ev.ts).toLocaleString();
+        modal.appendChild(time);
+
+        const location = document.createElement('p');
+        location.textContent =
+          ev.address ?? `Lat: ${ev.coord[1].toFixed(5)}, Lng: ${ev.coord[0].toFixed(5)}`;
+        modal.appendChild(location);
+
+        if (ev.thumbnail) {
+          const img = document.createElement('img');
+          img.src = ev.thumbnail;
+          img.style.maxWidth = '90vw';
+          img.style.maxHeight = '80vh';
+          img.style.borderRadius = '8px';
+          img.style.marginTop = '12px';
+          modal.appendChild(img);
+        }
+
+        document.body.appendChild(modal);
+      });
+
+      // add emoji marker to map
+      const marker = new maplibregl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+      markersRef.current.push(marker);
+    });
+  }, [allEvents, activeFilters]);
+
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+
+    const popup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      maxWidth: '300px',
+    });
+
+    const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
+      m.getCanvas().style.cursor = 'pointer';
+      const feat = e.features?.[0];
+      if (!feat) return;
+
+      const props = feat.properties as any;
+      const coords = (feat.geometry as Point).coordinates as [number, number];
+
+      const ev = allEvents.find((x) => x.id === props.id || x.ts === props.ts);
+      if (!ev) return;
+
+      // build small preview
+      const thumbHtml = ev.thumbnail
+        ? `<img src="${ev.thumbnail}" style="max-width:100%;border-radius:6px;margin-top:6px"/>`
+        : '';
+
+      popup
+        .setLngLat(coords)
+        .setHTML(
+          `
+        <strong>${ev.label.toUpperCase()}</strong><br/>
+        ${new Date(ev.ts).toLocaleString()}<br/>
+        ${ev.address ?? `Lat: ${coords[1].toFixed(5)}, Lng: ${coords[0].toFixed(5)}`}<br/>
+        ${thumbHtml}
+      `
+        )
+        .addTo(m);
+    };
+
+    const onLeave = () => {
+      m.getCanvas().style.cursor = '';
+      popup.remove();
+    };
+
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const feat = e.features?.[0];
+      if (!feat) return;
+      const props = feat.properties as any;
+      const ev = allEvents.find((x) => x.id === props.id || x.ts === props.ts);
+      if (!ev) return;
+
+      // show a full overlay
+      const overlay = document.createElement('div');
+      overlay.style.position = 'fixed';
+      overlay.style.top = '0';
+      overlay.style.left = '0';
+      overlay.style.width = '100vw';
+      overlay.style.height = '100vh';
+      overlay.style.background = 'rgba(0,0,0,0.85)';
+      overlay.style.display = 'flex';
+      overlay.style.flexDirection = 'column';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.zIndex = '9999';
+      overlay.style.color = 'white';
+      overlay.style.padding = '20px';
+
+      const close = document.createElement('div');
+      close.textContent = '✕';
+      close.style.position = 'absolute';
+      close.style.top = '20px';
+      close.style.right = '30px';
+      close.style.fontSize = '28px';
+      close.style.cursor = 'pointer';
+      close.addEventListener('click', () => document.body.removeChild(overlay));
+      overlay.appendChild(close);
+
+      const title = document.createElement('h2');
+      title.textContent = ev.label.toUpperCase();
+      overlay.appendChild(title);
+
+      const time = document.createElement('div');
+      time.textContent = new Date(ev.ts).toLocaleString();
+      overlay.appendChild(time);
+
+      const loc = document.createElement('div');
+      loc.innerHTML =
+        ev.address ?? `Lat: ${ev.coord[1].toFixed(5)}, Lng: ${ev.coord[0].toFixed(5)}`;
+      overlay.appendChild(loc);
+
+      if (ev.thumbnail) {
+        const img = document.createElement('img');
+        img.src = ev.thumbnail;
+        img.style.maxWidth = '80vw';
+        img.style.maxHeight = '70vh';
+        img.style.borderRadius = '8px';
+        img.style.marginTop = '12px';
+        overlay.appendChild(img);
+      }
+
+      document.body.appendChild(overlay);
+    };
+
+    ['pinned-circles', 'pinned-emojis'].forEach((layer) => {
+      m.on('mouseenter', layer, onEnter);
+      m.on('mouseleave', layer, onLeave);
+      m.on('click', layer, onClick);
+    });
+
+    return () => {
+      m.off('mouseenter', 'pinned-icons', onEnter);
+      m.off('mouseleave', 'pinned-icons', onLeave);
+      m.off('click', 'pinned-icons', onClick);
+      popup.remove();
+    };
+  }, [allEvents]);
 
   // ---------- Mode → next map click defines target ----------
 
@@ -490,38 +553,6 @@ export default function MapLibreMap() {
       m.off('click', onClick); // ✅
     };
   }, [scanMode]);
-  // useEffect(() => {
-  //   const m = mapRef.current;
-  //   if (!m) return;
-
-  //   const setVis = (id: string, visible: boolean) => {
-  //     if (m.getLayer(id)) {
-  //       m.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
-  //     }
-  //   };
-
-  //   // turn individual events ON only if viewMode === 'events'
-  //   setVis('annots', viewMode === 'events');
-  //   setVis('clusters', viewMode === 'events');
-  //   setVis('cluster-count', viewMode === 'events');
-
-  //   // turn category clusters ON only if viewMode === 'categories'
-  //   setVis('category-clusters', viewMode === 'categories');
-  //   setVis('category-count', viewMode === 'categories');
-  // }, [viewMode]);
-  // useEffect(() => {
-  //   if (viewMode === 'categories') {
-  //     // hide all manual markers
-  //     markersRef.current.forEach((marker) => {
-  //       marker.getElement().style.display = 'none';
-  //     });
-  //   } else {
-  //     // show them again
-  //     markersRef.current.forEach((marker) => {
-  //       marker.getElement().style.display = '';
-  //     });
-  //   }
-  // }, [viewMode]);
 
   // keep the latest events in a ref
   const eventsRef = useRef<DetectionEvent[]>([]);
@@ -535,31 +566,39 @@ export default function MapLibreMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    if (!m.isStyleLoaded()) return;
 
-    const src = m.getSource('annotationsCategory') as maplibregl.GeoJSONSource | undefined;
+    const src = m.getSource('pinnedEvents') as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
 
-    // ✅ keep only events that match the current filters
+    // filter events based on active filters if needed
     const filtered = allEvents.filter(
       (ev) => activeFilters.size === 0 || activeFilters.has(ev.label)
     );
 
-    // then cluster that subset
-    const clustered = clusterByCategory(filtered, 200);
+    // normalize coords to [lng, lat]
+    const normalize = (coord: [number, number]) => {
+      const [a, b] = coord;
+      // if first looks like latitude → flip
+      return Math.abs(a) <= 90 && Math.abs(b) <= 180 ? [b, a] : coord;
+    };
 
-    src.setData({
+    const fc: FeatureCollection = {
       type: 'FeatureCollection',
-      features: clustered,
-    });
+      features: filtered.map((ev) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: ev.coord }, // no normalize
+        properties: {
+          id: ev.id,
+          label: ev.label,
+          ts: ev.ts,
+          icon: iconMap[ev.label] ?? '❓', // 👈 map label → emoji
+        },
+      })),
+    };
 
-    console.log(
-      'Category source now has',
-      clustered.length,
-      'features:',
-      clustered.map((f) => f.properties)
-    );
-  }, [allEvents, activeFilters]); // 👈 re-run when history or filters change
+    console.log('🔴 Updating pinnedEvents source with', fc.features.length, 'features');
+    src.setData(fc);
+  }, [allEvents, activeFilters]);
 
   useEffect(() => {
     const onVis = () => {
@@ -851,7 +890,6 @@ export default function MapLibreMap() {
     // inside startMission, after setMissionActive(true)
     // const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
     const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
-
     setWs(socket);
 
     socket.onopen = () => {
@@ -924,25 +962,6 @@ export default function MapLibreMap() {
     };
   };
 
-  useEffect(() => {
-    const m = mapRef.current;
-    if (!m || !m.isStyleLoaded()) return;
-
-    const features = clusterByCategory(events, 200);
-    console.log('⬆️ Updating annotationsCategory with', features.length, 'features');
-
-    (m.getSource('annotationsCategory') as maplibregl.GeoJSONSource).setData({
-      type: 'FeatureCollection',
-      features,
-    });
-
-    // Check right after setting
-    console.log(
-      '➡️ Current category source features:',
-      m.querySourceFeatures('annotationsCategory').map((f) => f.properties)
-    );
-  }, [events]);
-
   const startOrbit = (center: Coord) => {
     // Optional: small circular patrol to visualize "scan"
     const m = mapRef.current!;
@@ -968,148 +987,6 @@ export default function MapLibreMap() {
       return dP < dBest ? p : best;
     }, initialDronePorts[0]);
   };
-
-  // ---------- Detections (mock) + annotations layer ----------
-  // When mission is active, periodically add fake detections near the selected target
-  // useEffect(() => {
-  //   if (!missionActiveRef.current) return;
-  //   if (inTransit) return;
-  //   if (!droneMarkerRef.current) return;
-  //   const id = setInterval(() => {
-  //     // inside your detection interval effect:
-  //     const area = missionGeom?.shape; // already a Polygon (circle buffer, corridor, FOI)
-  //     if (!area) return;
-
-  //     // pick one random point inside area
-  //     const pts = turf.randomPoint(1, { bbox: turf.bbox(area) }).features;
-  //     let pt = pts[0];
-  //     if (!turf.booleanPointInPolygon(pt, area)) {
-  //       // retry until point is inside
-  //       for (let i = 0; i < 5; i++) {
-  //         const retry = turf.randomPoint(1, { bbox: turf.bbox(area) }).features[0];
-  //         if (turf.booleanPointInPolygon(retry, area)) {
-  //           pt = retry;
-  //           break;
-  //         }
-  //       }
-  //     }
-
-  //     const coord = pt.geometry.coordinates as Coord;
-  //     const ts = Date.now();
-  //     const labels: DetectionEvent['label'][] = ['fire', 'chemical', 'person'];
-  //     const label = labels[Math.floor(Math.random() * labels.length)];
-  //     const currentTime = videoRef.current?.getCurrentTime() ?? 0;
-  //     const snapshot = videoRef.current?.captureFrame?.() ?? undefined;
-  //     console.log('📸 snapshot value:', snapshot?.length);
-
-  //     const newEvent: DetectionEvent = {
-  //       id: `${ts}-${label}`,
-  //       ts,
-  //       label,
-  //       score: 0.9,
-  //       coord,
-  //       seen: false,
-  //       thumbnail: snapshot,
-  //       videoTime: currentTime, // optional, for later seeking
-  //       bbox: [0, 0, 0, 0],
-  //     };
-
-  //     setEvents((prev) => {
-  //       const next = [...prev, newEvent];
-  //       setNewEventToast(newEvent); // show the temporary toast (make sure you have const [newEventToast,setNewEventToast] = useState<DetectionEvent|null>(null);)
-  //       setUnreadCount((c) => c + 1); // optional unread badge (if you added unread state)
-  //       return next;
-  //     });
-  //   }, 4000);
-  //   return () => clearInterval(id);
-  // }, [missionActive, inTransit, missionGeom]);
-
-  // Push events into the "annotations" source whenever they change
-  // useEffect(() => {
-  //   const m = mapRef.current;
-  //   if (!m) return;
-
-  //   // remove previous markers so we don’t duplicate them
-  //   markersRef.current.forEach((marker) => marker.remove());
-  //   markersRef.current = [];
-
-  //   const popup = new maplibregl.Popup({ closeButton: false, offset: 25 });
-
-  //   // ✅ filter using the shared Set of active filters
-  //   const visible = events.filter((e) => activeFilters.has(e.label));
-
-  //   visible.forEach((ev) => {
-  //     const el = createEventMarker(ev.label);
-  //     el.classList.add('map-marker');
-  //     el.dataset.id = ev.id;
-
-  //     const marker = new maplibregl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
-
-  //     // build the popup HTML
-  //     const html =
-  //       ev.label === 'snapshot'
-  //         ? `
-  //           <strong>📸 Snapshot</strong><br/>
-  //           ${new Date(ev.ts).toLocaleTimeString()}<br/>
-  //           ${
-  //             ev.thumbnail
-  //               ? `<img src="${ev.thumbnail}" style="margin-top:6px;max-width:150px;border-radius:6px"/>`
-  //               : ''
-  //           }
-  //         `
-  //         : `
-  //           <strong>${ev.label}</strong><br/>
-  //           ${new Date(ev.ts).toLocaleTimeString()}
-  //         `;
-
-  //     el.addEventListener('mouseenter', () => {
-  //       setSelectedEventId(ev.id); // highlight on hover
-  //       popup.setLngLat(ev.coord).setHTML(html).addTo(m);
-  //     });
-
-  //     el.addEventListener('mouseleave', () => {
-  //       setSelectedEventId(null); // clear when leaving
-  //       popup.remove();
-  //     });
-
-  //     el.addEventListener('click', () => {
-  //       m.flyTo({ center: ev.coord, zoom: 16 });
-  //       const firstTs = events[0]?.ts ?? ev.ts;
-  //       videoRef.current?.seekTo(Math.max(0, (ev.ts - firstTs) / 1000));
-  //     });
-
-  //     markersRef.current.push(marker);
-  //   });
-
-  //   // cleanup
-  //   return () => {
-  //     popup.remove();
-  //     markersRef.current.forEach((marker) => marker.remove());
-  //     markersRef.current = [];
-  //   };
-  // }, [events, activeFilters]); // <-- note activeFilters here
-  useEffect(() => {
-    const m = mapRef.current;
-    if (!m) return;
-
-    // ensure the style is fully loaded and the source exists
-    if (!m.isStyleLoaded() || !m.getSource('annotations')) return;
-
-    const collection: FeatureCollection<Point> = {
-      type: 'FeatureCollection',
-      features: events
-        .filter((e) => activeFilters.has(e.label))
-        .map(
-          (e): Feature<Point> => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: e.coord },
-            properties: { ...e },
-          })
-        ),
-    };
-
-    (m.getSource('annotations') as maplibregl.GeoJSONSource).setData(collection);
-  }, [events, activeFilters]);
 
   useEffect(() => {
     markersRef.current.forEach((marker) => {
@@ -1590,14 +1467,11 @@ export default function MapLibreMap() {
     } as FeatureCollection);
     (m.getSource('covered') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
     (m.getSource('remaining') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('annotations') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('pinnedEvents') as maplibregl.GeoJSONSource).setData({
       type: 'FeatureCollection',
-      features: events.map((ev) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: ev.coord },
-        properties: { ...ev },
-      })),
+      features: [],
     });
+
     droneMarkerRef.current?.remove();
   };
 
@@ -1687,7 +1561,58 @@ export default function MapLibreMap() {
         {/* --- Event Feed Sidebar --- */}
 
         {/* --- Drawer Toggle Button --- */}
+        {showFeed && (
+          <EventFeed
+            events={allEvents}
+            missionActive={missionActive}
+            unreadCount={unreadCount}
+            onSelect={(ev) => {
+              setSelectedEventId(ev.id);
+              mapRef.current?.flyTo({ center: ev.coord, zoom: 15 });
 
+              const first = allEvents[0];
+              if (first && videoRef.current) {
+                const offset = Math.max(0, (ev.ts - first.ts) / 1000);
+                videoRef.current.seekTo(offset);
+              }
+
+              // mark as read
+              setAllEvents((prev) => prev.map((e) => (e.id === ev.id ? { ...e, seen: true } : e)));
+            }}
+            onMarkRead={(id) =>
+              setAllEvents((prev) => prev.map((e) => (e.id === id ? { ...e, seen: true } : e)))
+            }
+          />
+        )}
+
+        <button
+          onClick={() => setShowFeed((v) => !v)}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: showFeed ? 340 : 0, // move out when sidebar is open
+            transform: 'translateY(-50%)',
+            zIndex: 4000,
+            background: showFeed ? '#0ea5e9' : '#111827',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '0 12px 12px 0',
+            padding: '10px 16px',
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+            transition: 'left 0.3s ease, background 0.3s ease, transform 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-50%) scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-50%) scale(1)';
+          }}
+        >
+          {showFeed ? '⟨ Hide Feed' : 'Show Feed ⟩'}
+        </button>
         <main style={{ flex: 1, position: 'relative' }}>
           <InstructionBanner />
 
@@ -1891,45 +1816,6 @@ export default function MapLibreMap() {
               availableLabels={[...detectedLabels]}
             />
             {/* Debug overlay for backend detections */}
-            <div
-              style={{
-                position: 'absolute',
-                top: 70,
-                left: 20,
-                background: 'rgba(0,0,0,0.7)',
-                color: '#fff',
-                padding: '10px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                maxHeight: '250px',
-                width: '280px',
-                overflowY: 'auto',
-                zIndex: 9999999,
-              }}
-            >
-              <h4 style={{ margin: '0 0 5px 0' }}>🛰️ Backend Events</h4>
-              {allEvents.slice(-5).map((ev) => (
-                <div key={ev.id} style={{ marginBottom: '8px', borderBottom: '1px solid #555' }}>
-                  <div>
-                    <strong>Label:</strong> {ev.label}
-                  </div>
-                  <div>
-                    <strong>Score:</strong> {(ev.score * 100).toFixed(1)}%
-                  </div>
-                  <div>
-                    <strong>Coords:</strong> {ev.coord[0].toFixed(3)}, {ev.coord[1].toFixed(3)}
-                  </div>
-                  <div>{/* <strong>BBox:</strong> [{ev.bbox.join(', ')}] */}</div>
-                  {ev.thumbnail && (
-                    <img
-                      src={ev.thumbnail}
-                      alt={ev.label}
-                      style={{ width: '100%', marginTop: '4px', borderRadius: '4px' }}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
           </>
         )}
       </div>
