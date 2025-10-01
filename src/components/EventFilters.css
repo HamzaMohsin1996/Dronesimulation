@@ -1,0 +1,36 @@
+.event-filter-tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center; /* center like a tab bar */
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 8px;
+  z-index: 3100;
+}
+
+.filter-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.filter-tab .tab-icon {
+  font-size: 18px;
+}
+
+.filter-tab.active {
+  background: #0ea5e9;
+  color: #fff;
+  border-color: #0ea5e9;
+}
+
+.filter-tab:hover:not(.active) {
+  background: #e5e7eb;
+}

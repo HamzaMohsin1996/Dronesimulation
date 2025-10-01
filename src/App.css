@@ -1,0 +1,81 @@
+/* Container for the dropdown */
+.notif-dropdown {
+  position: absolute;
+  top: 110%;
+  right: 0;
+  width: 260px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  max-height: 60vh;
+  overflow-y: auto;
+  color: #111827; /* dark text for readability */
+}
+
+/* Each notification row */
+.notif-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.notif-item:hover {
+  background: #f9fafb;
+}
+
+/* Icon column (emoji) */
+.notif-item .icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* Text / image container */
+.notif-item .info {
+  flex: 1;
+}
+
+/* Event label text */
+.notif-item .info .label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #111827;
+}
+
+/* Timestamp text */
+.notif-item .info small {
+  color: #4b5563;
+  font-size: 0.75rem;
+}
+
+/* Thumbnail image */
+.notif-item .info .thumb {
+  margin-top: 4px;
+  width: 80px; /* limit image size */
+  height: auto;
+  border-radius: 4px;
+  object-fit: cover; /* crop without stretching */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.map-marker {
+  transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.map-marker.dimmed {
+  opacity: 0.3;
+}
+
+.map-marker.active {
+  transform: scale(1.6);
+  z-index: 10000;
+  box-shadow: 0 0 12px 4px rgba(14, 165, 233, 0.7);
+}
+
+.modal {
+  z-index: 100000 !important;
+}

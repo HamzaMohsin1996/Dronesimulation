@@ -1,0 +1,123 @@
+/* Header.scss */
+
+.header {
+  background-color: #333;
+  color: #fff;
+  padding: 0.75rem 1rem;
+
+  .logo {
+    max-width: 30px;
+    max-width: 30px;
+  }
+
+  .title {
+    margin-left: 1rem;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  .icon-buttons {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    button {
+      width: 40px;
+      height: 40px;
+
+      &:hover {
+        color: #007bff; // Change color on hover
+      }
+
+      svg {
+        width: 26px;
+        height: 26px;
+      }
+    }
+  }
+}
+
+
+/* src/styles/alert-ring.css */
+@media (prefers-reduced-motion: no-preference) {
+  .pulse-ring {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    70% {
+      box-shadow: 0 0 0 18px rgba(239, 68, 68, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+  }
+}
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(14, 165, 233, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0);
+  }
+}
+
+
+.notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.notif-dropdown {
+  position: absolute;
+  top: 110%;
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 9999;
+}
+
+.notif-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  &:hover { background: #f9fafb; }
+  .icon { font-size: 20px; }
+  .thumb { display:block; margin-top:4px; width:100%; border-radius:4px; }
+}
+
+.map-marker {
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.map-marker.active {
+  background-color: #0ea5e9;  /* filled blue background */
+  color: #ffffff;            /* icon becomes white */
+}
+
+.map-marker.dimmed {
+  opacity: 0.3;              /* fade out non-active markers */
+}
