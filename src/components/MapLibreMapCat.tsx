@@ -169,6 +169,24 @@ export default function MapLibreMap() {
     });
   };
   // 🔌 Connect to YOLO WebSocket backend
+  // useEffect(() => {
+  //   const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+  //   ws.onopen = () => console.log('🔌 WebSocket connected');
+
+  //   ws.onmessage = (msg) => {
+  //     const data = JSON.parse(msg.data);
+  //     console.log('📩 Incoming from backend:', data);
+
+  //     if (data.events && data.events.length > 0) {
+  //       setEvents((prev) => [...prev, ...data.events]); // ✅ store backend detections
+  //     }
+  //   };
+
+  //   ws.onclose = () => console.log('🔌 WebSocket closed');
+  //   return () => ws.close();
+  // }, []);
+
+  // const [viewMode, setViewMode] = useState<'events' | 'categories'>('events');
   useEffect(() => {
     missionActiveRef.current = missionActive;
   }, [missionActive]);

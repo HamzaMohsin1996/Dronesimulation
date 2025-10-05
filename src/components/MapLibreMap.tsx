@@ -1,7 +1,14 @@
 // src/components/pages/ReengagementMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import mapboxgl, {
+  Map as MapboxMap,
+  Marker,
+  GeoJSONSource,
+  MapMouseEvent,
+  Popup,
+} from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+
 import * as turf from '@turf/turf';
 import type { Feature, FeatureCollection, LineString, Point, Polygon, MultiPolygon } from 'geojson';
 import type { MapGeoJSONFeature } from 'maplibre-gl';
@@ -27,6 +34,11 @@ import RecapPanel from './RecapPanel';
 type Coord = [number, number];
 
 type DronePort = { coord: Coord; id: string; status: 'idle' | 'in-flight' };
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
+const MAP_STYLES = {
+  Streets: 'mapbox://styles/mapbox/streets-v12',
+  Satellite: 'mapbox://styles/mapbox/satellite-v9',
+} as const;
 const initialDronePorts: DronePort[] = [
   { coord: [11.505, 48.719], id: 'drone-port-1', status: 'idle' },
   { coord: [11.502, 48.716], id: 'drone-port-2', status: 'idle' },
@@ -34,7 +46,7 @@ const initialDronePorts: DronePort[] = [
 
 // Mission modes (as you asked: STREET / POI / FOI; plus CLICK if you want a quick circle)
 type ScanMode = 'STREET' | 'POI' | 'FOI' | 'CLICK';
-
+  
 const DEFAULT_SCAN_RADIUS_M = 120; // for CLICK/POI circle polygon
 const STREET_BUFFER_M = 25; // buffered corridor for STREET
 const DRONE_SPEED_MPS = 15; // used to compute ETA (≈54 km/h)
@@ -42,15 +54,15 @@ const ORBIT_RADIUS_M = 70; // simple orbit after arrival (optional eye-candy)
 
 // ---------------- Component ----------------
 export default function MapLibreMap() {
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapEl = useRef<HTMLDivElement | null>(null);
 
-  const droneMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const droneMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const originPortRef = useRef<DronePort | null>(null);
 
   const videoRef = useRef<VideoReviewHandle | null>(null);
 
-  const [scanMode, setScanMode] = useState<ScanMode | null>(null);
+  const [scanMode, setScanMode] = useState<ScanMode>('CLICK'); // ✅ circle area by default
   const [missionGeom, setMissionGeom] = useState<{
     kind: ScanMode;
     center: Coord;
@@ -58,6 +70,17 @@ export default function MapLibreMap() {
     line?: Feature<LineString>;
   } | null>(null);
   const [showFeed, setShowFeed] = useState(true);
+  useEffect(() => {
+      if (!mapRef.current) return;
+    
+      // Wait for layout transition to finish
+      const timer = setTimeout(() => {
+        mapRef.current!.resize();
+      }, 300); // match your CSS transition time (0.3s)
+      
+      return () => clearTimeout(timer);
+    }, [showFeed]);
+    
 
   const [missionActive, setMissionActive] = useState(false);
   const [inTransit, setInTransit] = useState(false);
@@ -82,7 +105,7 @@ export default function MapLibreMap() {
   // reason the operator was considered "away"
   type AwayReason = 'tab-switch' | 'out-of-focus' | 'idle' | null;
   const [awayReason, setAwayReason] = useState<AwayReason>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
   // highlight currently selected event
   const [showReturnModal, setShowReturnModal] = useState(false);
   // new: events that were missed but not yet opened from the header dropdown
@@ -125,80 +148,69 @@ export default function MapLibreMap() {
   // ---------- Map init ----------
   useEffect(() => {
     if (!mapEl.current) return;
-
-    const m = new maplibregl.Map({
+  
+    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
+  
+    const m = new mapboxgl.Map({
       container: mapEl.current,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-          },
-          missionGeom: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] } as FeatureCollection,
-          },
-          covered: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          remaining: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          // ✅ only one source for detected events
-          pinnedEvents: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-          },
-        },
-        layers: [
-          { id: 'osm', type: 'raster', source: 'osm' },
-          {
-            id: 'mission-fill',
-            type: 'fill',
-            source: 'missionGeom',
-            filter: ['==', ['geometry-type'], 'Polygon'],
-            paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
-          },
-          {
-            id: 'mission-outline',
-            type: 'line',
-            source: 'missionGeom',
-            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-            paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
-          },
-          {
-            id: 'path-covered',
-            type: 'line',
-            source: 'covered',
-            paint: { 'line-color': '#16a34a', 'line-width': 4 },
-          },
-          {
-            id: 'path-remaining',
-            type: 'line',
-            source: 'remaining',
-            paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
-          },
-        ],
-      },
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: [11.506, 48.718],
       zoom: 13,
     });
-
+  
     m.on('load', () => {
-      // Drone ports
+      console.log('✅ Mapbox loaded');
+  
+      // --- Add custom sources ---
+      m.addSource('missionGeom', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      m.addSource('covered', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+      });
+      m.addSource('remaining', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+      });
+      m.addSource('pinnedEvents', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+  
+      // --- Add layers (just like before) ---
+      m.addLayer({
+        id: 'mission-fill',
+        type: 'fill',
+        source: 'missionGeom',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
+      });
+  
+      m.addLayer({
+        id: 'mission-outline',
+        type: 'line',
+        source: 'missionGeom',
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+        paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
+      });
+  
+      m.addLayer({
+        id: 'path-covered',
+        type: 'line',
+        source: 'covered',
+        paint: { 'line-color': '#16a34a', 'line-width': 4 },
+      });
+  
+      m.addLayer({
+        id: 'path-remaining',
+        type: 'line',
+        source: 'remaining',
+        paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
+      });
+  
+      // --- Add your drone port icons as markers ---
       initialDronePorts.forEach(({ coord }) => {
         const el = document.createElement('div');
         el.style.width = '30px';
@@ -211,33 +223,15 @@ export default function MapLibreMap() {
         img.style.height = '100%';
         img.style.objectFit = 'contain';
         el.appendChild(img);
-        new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
+        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
-
-      // Load SVG icons for categories
-      // Object.entries(categoryIcons).forEach(([key, { svg: Icon }]) => {
-      //   const markup = renderToStaticMarkup(<Icon color="#fff" size={28} />);
-      //   const blob = new Blob([markup], { type: 'image/svg+xml' });
-      //   const url = URL.createObjectURL(blob);
-      //   const img = new Image(32, 32);
-
-      //   img.onload = () => {
-      //     if (!m.hasImage(`cat-${key}`)) {
-      //       m.addImage(`cat-${key}`, img, { pixelRatio: 2 });
-      //     }
-      //     URL.revokeObjectURL(url);
-      //   };
-
-      //   img.src = url;
-      // });
     });
-
+  
     mapRef.current = m;
-
-    return () => {
-      m.remove();
-    };
+  
+    return () => m.remove();
   }, []);
+  
   // 👇 Add this effect inside your component
   useEffect(() => {
     const m = mapRef.current;
@@ -259,11 +253,11 @@ export default function MapLibreMap() {
       el.innerText = iconMap[ev.label]?.icon ?? '❓';
 
       // --- Hover preview popup ---
-      let popup: maplibregl.Popup | null = null;
+      let popup: mapboxgl.Popup | null = null;
 
       el.addEventListener('mouseenter', () => {
         if (popup) return;
-        popup = new maplibregl.Popup({
+        popup = new mapboxgl.Popup({
           closeButton: false,
           closeOnClick: false,
           offset: 25,
@@ -359,7 +353,7 @@ export default function MapLibreMap() {
       });
 
       // add emoji marker to map
-      const marker = new maplibregl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
       markersRef.current.push(marker);
     });
   }, [allEvents, activeFilters]);
@@ -368,13 +362,13 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const popup = new maplibregl.Popup({
+    const popup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
       maxWidth: '300px',
     });
 
-    const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
+    const onEnter = (e: mapboxgl.MapLayerMouseEvent) => {
       m.getCanvas().style.cursor = 'pointer';
       const feat = e.features?.[0];
       if (!feat) return;
@@ -408,7 +402,7 @@ export default function MapLibreMap() {
       popup.remove();
     };
 
-    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+    const onClick = (e: mapboxgl.MapLayerMouseEvent) => {
       const feat = e.features?.[0];
       if (!feat) return;
       const props = feat.properties as any;
@@ -487,7 +481,7 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const onClick = (e: maplibregl.MapMouseEvent) => {
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
       if (missionActiveRef.current) return;
 
       const c: Coord = [e.lngLat.lng, e.lngLat.lat];
@@ -570,7 +564,7 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const src = m.getSource('pinnedEvents') as maplibregl.GeoJSONSource | undefined;
+    const src = m.getSource('pinnedEvents') as mapboxgl.GeoJSONSource | undefined;
     if (!src) return;
 
     // filter events based on active filters if needed
@@ -631,17 +625,17 @@ export default function MapLibreMap() {
     const features: any[] = [];
     if (opts.polygon) features.push(opts.polygon);
     if (opts.line) features.push(opts.line);
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features,
     } as FeatureCollection);
     // Reset path sources
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
     } as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -673,7 +667,7 @@ export default function MapLibreMap() {
 
     // draw the ring on the map for visual feedback
     const ring = turf.lineString(coords);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [ring],
     });
@@ -716,7 +710,7 @@ export default function MapLibreMap() {
     animate();
 
     const scanLine = turf.lineString(path);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [scanLine],
     });
@@ -750,7 +744,7 @@ export default function MapLibreMap() {
     el.appendChild(img);
 
     droneMarkerRef.current?.remove();
-    droneMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+    droneMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
       .setLngLat(origin.coord)
       .addTo(mapRef.current!);
 
@@ -768,7 +762,7 @@ export default function MapLibreMap() {
     }
 
     // ⭐ NEW popup to show live progress
-    const progressPopup = new maplibregl.Popup({
+    const progressPopup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
       className: 'drone-progress-popup',
@@ -788,7 +782,7 @@ export default function MapLibreMap() {
     const transitMs = totalDistM > 0 ? (totalDistM / DRONE_SPEED_MPS) * 1000 : 1;
 
     // Prime sources
-    (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(
+    (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(
       toTarget.geometry.coordinates.length >= 2
         ? toTarget
         : ({
@@ -797,7 +791,7 @@ export default function MapLibreMap() {
             properties: {},
           } as Feature<LineString>)
     );
-    (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -854,8 +848,8 @@ export default function MapLibreMap() {
           };
         }
 
-        (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData(covered);
-        (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(remaining);
+        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
+        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
 
         if (t < 1) {
           requestAnimationFrame(raf);
@@ -864,7 +858,7 @@ export default function MapLibreMap() {
           progressPopup.remove(); // <-- remove ETA popup here
 
           setInTransit(false);
-          (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+          (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: [] },
             properties: {},
@@ -1016,7 +1010,7 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const popup = new maplibregl.Popup({
+    const popup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
     });
@@ -1025,7 +1019,7 @@ export default function MapLibreMap() {
     let isMouseOnPopup = false;
     let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
+    const onEnter = (e: mapboxgl.MapLayerMouseEvent) => {
       const feat = e.features?.[0];
       if (!feat) return;
 
@@ -1036,14 +1030,14 @@ export default function MapLibreMap() {
       let timestamps: number[] = [];
 
       try {
-        const parsedThumbs = JSON.parse(props.thumbnails);
+        const parsedThumbs = JSON.parse(props?.thumbnails);
         if (Array.isArray(parsedThumbs)) {
           thumbs = parsedThumbs.filter(
             (t: unknown): t is string => typeof t === 'string' && t.startsWith('data:image')
           );
         }
 
-        const parsedTimestamps = JSON.parse(props.timestamps);
+        const parsedTimestamps = JSON.parse(props?.timestamps);
         if (Array.isArray(parsedTimestamps)) {
           timestamps = parsedTimestamps.filter((t: unknown): t is number => typeof t === 'number');
         }
@@ -1076,8 +1070,8 @@ export default function MapLibreMap() {
       }
 
       container.innerHTML = `
-  <strong>${props.label}</strong><br/>
-  ${props.count} detections<br/>
+  <strong>${props?.label}</strong><br/>
+  ${props?.count} detections<br/>
   ${addressText}
   ${centerLat}, ${centerLng}
 `;
@@ -1150,7 +1144,7 @@ export default function MapLibreMap() {
 
             // ===== Incident label =====
             const title = document.createElement('h2');
-            title.textContent = props.label || 'Unknown Event';
+            title.textContent = props?.label || 'Unknown Event';
             title.style.marginBottom = '4px';
             overlay.appendChild(title);
 
@@ -1313,7 +1307,7 @@ export default function MapLibreMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
     const onEnter = (e: any) => {
       m.getCanvas().style.cursor = 'pointer';
@@ -1470,13 +1464,13 @@ export default function MapLibreMap() {
     setShowQuickBrief(false); // ✅ reset quick brief
     // clear sources
     const m = mapRef.current!;
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [],
     } as FeatureCollection);
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('pinnedEvents') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('pinnedEvents') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [],
     });
