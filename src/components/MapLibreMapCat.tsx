@@ -850,7 +850,8 @@ export default function MapLibreMap() {
       startOrbit(center);
     }
     // inside startMission, after setMissionActive(true)
-    const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    // const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
     setWs(socket);
 
     socket.onopen = () => {
@@ -1912,7 +1913,7 @@ export default function MapLibreMap() {
           }}
         />
         {missionActive && (
-          <>
+          <div>
             <VideoReview
               ref={videoRef}
               // src={inTransit ? DroneEnrouteVideo : FirefighterVideo}
@@ -1922,15 +1923,7 @@ export default function MapLibreMap() {
               events={currentBoxes}
             />
 
-            {/* New filter strip positioned wherever you like */}
-            {/* <EventFilters active={activeFilters} onToggle={toggleFilter} /> */}
 
-            {console.log('Timeline props', {
-              startTs: streamStart,
-              count: allEvents.length,
-              labels: [...detectedLabels],
-              filters: [...activeFilters],
-            })}
 
             <EventTimeline
               videoHandleRef={videoRef}
@@ -1941,7 +1934,7 @@ export default function MapLibreMap() {
               availableLabels={[...detectedLabels]}
             />
             {/* Debug overlay for backend detections */}
-          </>
+          </div>
         )}
       </div>
     </>
