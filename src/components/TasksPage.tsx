@@ -4,7 +4,7 @@ export default function TasksPage() {
   const tasks = [
     {
       title: 'Reengagement after Interruptions',
-      path: '/scenarios',
+      path: '/scenarios/feed',
       desc: 'Map annotations + Quick Brief after being away.',
       icon: '⏮️',
     },

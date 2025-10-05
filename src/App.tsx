@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import TasksPage from './components/TasksPage';
-import ScenarioSelector from './components/ScenarioSelector';
+import ScenarioEventFeed from './components/scenarios/ScenarioEventFeed';
 import SensorRetrievalPage from './components/pages/SensorRetrievalMap';
 import SpatialInteractionsPage from './components/pages/SpatialInteractionsPage';
 import './App.css';
@@ -111,7 +111,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<TasksPage />} />
-        <Route path="/scenarios/*" element={<ScenarioSelector />} />
+        <Route path="/scenarios/feed" element={<ScenarioEventFeed />} /> 
         <Route path="/sensor-retrieval/*" element={<SensorRetrievalPage />} />
         <Route path="/spatial-interactions" element={<SpatialInteractionsPage />} />
       </Routes>

@@ -101,10 +101,19 @@ export default function EventTimeline({
   const minWindow = 60_000;
   const [viewStart, setViewStart] = useState(startTs);
   const [viewEnd, setViewEnd] = useState(startTs + initialWindowMin * 60_000);
+  const [isLive, setIsLive] = useState(true);
   useEffect(() => {
-    if (now > viewEnd) setViewEnd(now);
-  }, [now, viewEnd]);
-
+    if (!isLive) return; // don't auto-scroll if user moved back manually
+  
+    const span = viewEnd - viewStart;
+    if (now > viewEnd - 2000) {
+      const nextEnd = now + 2000;
+      setViewEnd(nextEnd);
+      setViewStart(nextEnd - span);
+    }
+  }, [now, viewStart, viewEnd, isLive]);
+  
+  
   /** px↔time mapping */
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [trackWidth, setTrackWidth] = useState(600);
@@ -141,18 +150,22 @@ export default function EventTimeline({
   /** cluster within 1s buckets per label (same as yours) */
   const bucketMs = 1000;
   const clusters = useMemo(() => {
-    const map = new Map<string, { ts: number; label: Label; list: DetectionEvent[] }>();
+    // group ALL events with same timestamp into one cluster
+    const map = new Map<number, DetectionEvent[]>();
     filtered
       .filter((e) => e.ts >= viewStart && e.ts <= viewEnd)
       .forEach((ev) => {
         const keyTs = Math.round(ev.ts / bucketMs) * bucketMs;
-        const key = `${keyTs}-${ev.label}`;
-        const entry = map.get(key) ?? { ts: keyTs, label: ev.label, list: [] };
-        entry.list.push(ev);
-        map.set(key, entry);
+        const list = map.get(keyTs) ?? [];
+        list.push(ev);
+        map.set(keyTs, list);
       });
-    return [...map.values()].sort((a, b) => a.ts - b.ts);
+  
+    return [...map.entries()]
+      .map(([ts, list]) => ({ ts, list }))
+      .sort((a, b) => a.ts - b.ts);
   }, [filtered, viewStart, viewEnd]);
+  
 
   // keep a map: second -> captured dataURL
   const [frameCache, setFrameCache] = useState<Map<number, string>>(new Map());
@@ -200,6 +213,8 @@ export default function EventTimeline({
   const clusterPoints = clusters.map((c) => ({ x: msToX(c.ts), cluster: c }));
   const laneNumbers = allocateLanes(clusterPoints);
   const laneCount = laneNumbers.length ? Math.max(...laneNumbers) + 1 : 1;
+ 
+
 
   /** dynamic container height */
   const basePadding = 56; // + toolbar & labels
@@ -247,8 +262,13 @@ export default function EventTimeline({
   const togglePlayback = () => {
     const el = videoHandleRef.current?.videoEl;
     if (!el) return;
-    el.paused ? el.play() : el.pause();
+    if (el.paused) {
+      el.play();  // ✅ resume from current time
+    } else {
+      el.pause(); // ✅ pause but remember currentTime
+    }
   };
+  
 
   /** go live → jump to “now” and play */
   const goLive = () => {
@@ -256,7 +276,27 @@ export default function EventTimeline({
     if (!api?.videoEl) return;
     api.seekTo((Date.now() - startTs) / 1000);
     api.videoEl.play();
+    setReviewMs(null);
+    setIsLive(true); // ✅ start auto-following again
   };
+  
+
+  useEffect(() => {
+    const el = videoHandleRef.current?.videoEl;
+    if (!el) return;
+
+    const onPlay = () => {
+      const playbackWallTime = startTs + el.currentTime * 1000;
+      if (Math.abs(playbackWallTime - Date.now()) < 3000) {
+        setReviewMs(null); // only clear marker, no seek
+      }
+    };
+
+    el.addEventListener('play', onPlay);
+    return () => el.removeEventListener('play', onPlay);
+  }, [videoHandleRef, startTs]);
+  
+  
 
   const defaultIcon = (l: Label) =>
     l === 'fire' ? '🔥' : l === 'chemical' ? '🧪' : l === 'person' ? '👥' : '📸';
@@ -289,6 +329,36 @@ export default function EventTimeline({
     setViewStart(nextStart);
     setViewEnd(nextEnd);
   };
+  useEffect(() => {
+    if (!isPanning || !panStartRef.current) return;
+  
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!trackRef.current) return;
+  
+      const { rectWidth, msAtDown } = panStartRef.current!;
+      const rect = trackRef.current.getBoundingClientRect();
+      const msNow = xToMs(e.clientX - rect.left, rectWidth);
+  
+      const delta = msNow - msAtDown;
+      setViewStart((s) => s - delta);
+      setViewEnd((e2) => e2 - delta);
+    };
+  
+    const handleMouseUp = () => {
+      setIsPanning(false);
+      panStartRef.current = null;
+    };
+  
+    // attach listeners globally
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isPanning]);
+  
 
   /** drag-to-pan and shift+drag brush selection */
   const onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -372,7 +442,12 @@ export default function EventTimeline({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [viewStart, viewEnd]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  useEffect(() => {
+    const liveThreshold = 5000; // 5 seconds
+    const nearLive = viewEnd > now - liveThreshold;
+    setIsLive(nearLive);
+  }, [now, viewEnd]);
+  
   /** pattern-of-life mini heatmap (by hour, for currently filtered dataset) */
   const hourBuckets = useMemo(() => {
     const arr = Array(24).fill(0);
@@ -386,13 +461,7 @@ export default function EventTimeline({
   return (
     <div
       className="tl-container"
-      style={{
-        minHeight: `${containerHeight}px`,
-        ...(theme?.background ? { ['--tl-bg' as any]: theme.background } : {}),
-        ...(theme?.markerColor ? { ['--tl-marker' as any]: theme.markerColor } : {}),
-        ...(theme?.tickColor ? { ['--tl-tick' as any]: theme.tickColor } : {}),
-        ...(theme?.bandColor ? { ['--tl-band' as any]: theme.bandColor } : {}),
-      }}
+      
     >
       {/* Toolbar */}
       <div className="tl-toolbar">
@@ -490,30 +559,24 @@ export default function EventTimeline({
       </div>
 
       {/* Pattern-of-life mini heatmap */}
-      <div className="tl-heatmap">
-        {hourBuckets.arr.map((v, hr) => (
-          <div
-            key={hr}
-            className="tl-heatcell"
-            title={`${hr.toString().padStart(2, '0')}:00 — ${v} events`}
-            style={{ opacity: v === 0 ? 0.1 : 0.2 + 0.8 * (v / hourBuckets.max) }}
-          >
-            {hr}
-          </div>
-        ))}
-      </div>
+    
 
       {/* Timeline Track */}
       <div className="tl-track-wrap">
-        <div
+      <div
           ref={trackRef}
           className="tl-track"
           style={{ minHeight: `${laneCount * 24 + 24}px` }}
           onWheel={onWheelZoom}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
-          onMouseUp={onMouseUpLeave}
-          onMouseLeave={onMouseUpLeave}
+          // 🟢 Remove onMouseUp — global handler will handle it
+          onMouseLeave={() => {
+            if (!isPanning) { // don’t cancel while dragging
+              setTimeHover(null);
+              setHoverCluster(null);
+            }
+          }}
           onClick={(e) => {
             if (!trackRef.current) return;
             const r = trackRef.current.getBoundingClientRect();
@@ -522,6 +585,7 @@ export default function EventTimeline({
             videoHandleRef.current?.seekAndPause((ms - startTs) / 1000);
           }}
         >
+
           {/* background bands for range annotations */}
           {rangeAnnotations
             .filter((a) => a.end >= viewStart && a.start <= viewEnd)
@@ -547,17 +611,30 @@ export default function EventTimeline({
             })}
 
           {/* progress and playhead */}
-          <div className="tl-playhead" style={{ left: `${msToX(Date.now())}px` }} />
-          <div className="tl-progress-fill" style={{ width: `${msToX(Date.now())}px` }} />
+       {/* Blue live fill (background bar) */}
+       <div
+  className="tl-live-fill"
+  style={{
+    left: `${msToX(startTs)}px`,
+    width: `${Math.min(trackWidth, msToX(Math.min(now, viewEnd)) - msToX(startTs))}px`,
+  }}
+/>
+<div
+  className="tl-progress-fill"
+  style={{
+    left: `${msToX(startTs)}px`,
+    width: `${Math.min(trackWidth, msToX(Math.min(now, viewEnd)) - msToX(startTs))}px`,
+  }}
+/>
+<div
+  className="tl-playhead"
+  style={{
+    left: `${Math.min(trackWidth, msToX(Math.min(now, viewEnd)))}px`,
+  }}
+/>
 
-          {/* LIVE scanning bar – always up to current wall clock */}
-          <div
-            className="tl-live-fill"
-            style={{
-              left: `${msToX(startTs)}px`,
-              width: `${msToX(Math.min(now, viewEnd)) - msToX(startTs)}px`,
-            }}
-          />
+
+
 
           {/* ticks */}
           {ticks.map(({ t, big }) => (
@@ -576,36 +653,41 @@ export default function EventTimeline({
             ))}
 
           {/* event markers */}
-          {clusterPoints.map((cp, i) => {
-            const c = cp.cluster;
-            const lane = laneNumbers[i];
-            const count = c.list.length;
-            const icon = (c.list[0] as any).icon || defaultIcon(c.label);
-            const title =
-              count > 1
-                ? `${count} ${c.label} events @ ${new Date(c.ts).toLocaleTimeString()}`
-                : `${c.label} @ ${new Date(c.ts).toLocaleTimeString()}`;
-            return (
-              <button
-                key={`${c.ts}-${c.label}-${i}`}
-                className={`tl-marker${count > 1 ? ' tl-marker-cluster' : ''}`}
-                title={title}
-                style={{ left: `${cp.x}px`, top: `${lane * 18}px` }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  seekTo(c.ts, true);
-                }}
-                onMouseEnter={(e) => {
-                  e.stopPropagation();
-                  setHoverCluster({ x: cp.x, events: c.list });
-                }}
-                onMouseLeave={() => setHoverCluster(null)}
-              >
-                {icon}
-                {count > 1 && <span className="tl-badge">+{count}</span>}
-              </button>
-            );
-          })}
+          {clusters.map((c, i) => {
+  const x = msToX(c.ts);
+  const count = c.list.length;
+  const firstLabel = c.list[0]?.label ?? 'event';
+  const icon = (c.list[0] as any)?.icon || defaultIcon(firstLabel);
+
+  // Collect unique labels for tooltip
+  const uniqueLabels = [...new Set(c.list.map(e => e.label))].join(', ');
+  const title =
+    count > 1
+      ? `${count} events (${uniqueLabels}) @ ${new Date(c.ts).toLocaleTimeString()}`
+      : `${firstLabel} @ ${new Date(c.ts).toLocaleTimeString()}`;
+
+  return (
+    <button
+      key={`${c.ts}-${i}`}
+      className={`tl-marker${count > 1 ? ' tl-marker-cluster' : ''}`}
+      title={title}
+      style={{ left: `${x}px`, top: `0px` }} // flat layout, no lane stacking
+      onClick={(e) => {
+        e.stopPropagation();
+        seekTo(c.ts, true);
+      }}
+      onMouseEnter={(e) => {
+        e.stopPropagation();
+        setHoverCluster({ x, events: c.list });
+      }}
+      onMouseLeave={() => setHoverCluster(null)}
+    >
+      {icon}
+      {count > 1 && <span className="tl-badge">+{count}</span>}
+    </button>
+  );
+})}
+
 
           {/* hover tooltip (time) */}
           {timeHover && (

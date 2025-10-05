@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react';
+import { FiMaximize2, FiX } from "react-icons/fi";
+
 
 export type VideoReviewHandle = {
   captureFrame: () => string | null;
@@ -183,7 +185,7 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
           borderRadius: expanded ? 0 : 8,
           overflow: 'hidden',
           transition: 'all 0.3s ease',
-          zIndex: expanded ? 99 : 1000,
+          zIndex: expanded ? 101 : 3101,
           ...style,
         }}
       >
@@ -197,11 +199,12 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
             border: 'none',
             borderRadius: 6,
             padding: 6,
+            color: 'white',        
             cursor: 'pointer',
             zIndex: 3100,
           }}
         >
-          {expanded ? '✕' : '⤢'}
+           {expanded ? <FiX size={18} /> : <FiMaximize2 size={18} />}
         </button>
 
         <video
@@ -222,6 +225,7 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
             width: '100%',
             height: '100%',
             cursor: 'pointer',
+            zIndex: 3099,
           }}
         />
 

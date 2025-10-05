@@ -21,6 +21,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { categoryIcons } from './mapicons'; // "events" shows the normal points, "categories" shows category clusters
 import EventFeed from './EventFeed';
 import { iconMap } from '../shared/iconMap';
+import RecapPanel from './RecapPanel';
 
 // ---------------- Config ----------------
 type Coord = [number, number];
@@ -90,6 +91,8 @@ export default function MapLibreMap() {
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]);
+  const [recap, setRecap] = useState<any | null>(null);
+
 
   // ✅ all unique labels we’ve actually received so far
   const detectedLabels = React.useMemo(() => {
@@ -888,8 +891,8 @@ export default function MapLibreMap() {
       startOrbit(center);
     }
     // inside startMission, after setMissionActive(true)
-    // const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
-    const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+     const socket = new WebSocket(`ws://${window.location.hostname}:8001/ws`);
+      // const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
     setWs(socket);
 
     socket.onopen = () => {
@@ -1391,14 +1394,20 @@ export default function MapLibreMap() {
     };
     const handleFocus = () => {
       if (lastAwayTime.current) {
+        const now = Date.now();
+    
+        // fetch recap for events you missed
+        // existing missed events logic
         const missed = events.filter((e) => e.ts > lastAwayTime.current!);
         if (missed.length) {
           setMissedEvents(missed);
           setShowQuickBrief(true);
         }
+    
         lastAwayTime.current = null;
       }
     };
+    
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
@@ -1537,7 +1546,7 @@ export default function MapLibreMap() {
         padding: '10px 12px',
         borderRadius: 10,
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-        zIndex: 2000,
+        zIndex: 101,
         fontWeight: 600,
       }}
     >
@@ -1592,7 +1601,7 @@ export default function MapLibreMap() {
             top: '50%',
             left: showFeed ? 340 : 0, // move out when sidebar is open
             transform: 'translateY(-50%)',
-            zIndex: 4000,
+            zIndex: 101,
             background: showFeed ? '#0ea5e9' : '#111827',
             color: '#fff',
             border: 'none',
@@ -1628,7 +1637,7 @@ export default function MapLibreMap() {
               transition: 'all 0.3s ease',
               borderRadius: videoExpanded ? 8 : 0,
               overflow: 'hidden',
-              zIndex: 100,
+              zIndex: videoExpanded ? 3002 : 100 ,
             }}
           />
 
@@ -1745,7 +1754,7 @@ export default function MapLibreMap() {
                 color: '#fff',
                 fontWeight: 700,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                zIndex: 2200,
+                zIndex: 101,
               }}
             >
               ⏹ End Mission
@@ -1787,7 +1796,7 @@ export default function MapLibreMap() {
           }}
         />
         {missionActive && (
-          <>
+          <div>
             <VideoReview
               ref={videoRef}
               // src={inTransit ? DroneEnrouteVideo : FirefighterVideo}
@@ -1796,17 +1805,6 @@ export default function MapLibreMap() {
               onToggle={toggleVideo}
               events={currentBoxes}
             />
-
-            {/* New filter strip positioned wherever you like */}
-            {/* <EventFilters active={activeFilters} onToggle={toggleFilter} /> */}
-
-            {console.log('Timeline props', {
-              startTs: streamStart,
-              count: allEvents.length,
-              labels: [...detectedLabels],
-              filters: [...activeFilters],
-            })}
-
             <EventTimeline
               videoHandleRef={videoRef}
               events={allEvents}
@@ -1816,8 +1814,10 @@ export default function MapLibreMap() {
               availableLabels={[...detectedLabels]}
             />
             {/* Debug overlay for backend detections */}
-          </>
+          </div>
+          
         )}
+
       </div>
     </>
   );
