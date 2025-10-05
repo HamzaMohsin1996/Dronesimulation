@@ -121,3 +121,21 @@
 .map-marker.dimmed {
   opacity: 0.3;              /* fade out non-active markers */
 }
+.nav-tab {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.nav-tab:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.nav-tab.active {
+  background: #0072ff;
+  color: #fff;
+}

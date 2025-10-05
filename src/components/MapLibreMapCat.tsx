@@ -1676,13 +1676,7 @@ export default function MapLibreMap() {
 
   return (
     <>
-      <Header
-        notifications={notificationEvents}
-        onSelectNotification={(ev) => {
-          setSelectedEventId(ev.id);
-          mapRef.current?.flyTo({ center: ev.coord, zoom: 16 });
-        }}
-      />
+      
       <div style={{ display: 'flex', height: 'calc(100vh - 65px)', width: '100vw' }}>
         {/* --- Event Feed Sidebar --- */}
 
@@ -1718,7 +1712,7 @@ export default function MapLibreMap() {
             top: '50%',
             left: showFeed ? 340 : 0, // move out when sidebar is open
             transform: 'translateY(-50%)',
-            zIndex: 4000,
+            zIndex: 101,
             background: showFeed ? '#0ea5e9' : '#111827',
             color: '#fff',
             border: 'none',
@@ -1754,7 +1748,7 @@ export default function MapLibreMap() {
               transition: 'all 0.3s ease',
               borderRadius: videoExpanded ? 8 : 0,
               overflow: 'hidden',
-              zIndex: 100,
+              zIndex: videoExpanded ? 3002 : 100 ,
             }}
           />
 
@@ -1871,7 +1865,7 @@ export default function MapLibreMap() {
                 color: '#fff',
                 fontWeight: 700,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                zIndex: 2200,
+                zIndex: 101,
               }}
             >
               ⏹ End Mission
@@ -1922,9 +1916,6 @@ export default function MapLibreMap() {
               onToggle={toggleVideo}
               events={currentBoxes}
             />
-
-
-
             <EventTimeline
               videoHandleRef={videoRef}
               events={allEvents}
@@ -1935,7 +1926,9 @@ export default function MapLibreMap() {
             />
             {/* Debug overlay for backend detections */}
           </div>
+          
         )}
+
       </div>
     </>
   );

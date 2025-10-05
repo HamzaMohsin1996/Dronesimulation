@@ -1559,13 +1559,7 @@ export default function MapLibreMap() {
 
   return (
     <>
-      <Header
-        notifications={notificationEvents}
-        onSelectNotification={(ev) => {
-          setSelectedEventId(ev.id);
-          mapRef.current?.flyTo({ center: ev.coord, zoom: 16 });
-        }}
-      />
+     
       <div style={{ display: 'flex', height: 'calc(100vh - 65px)', width: '100vw' }}>
         {/* --- Event Feed Sidebar --- */}
 
