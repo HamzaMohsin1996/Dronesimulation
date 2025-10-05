@@ -1,7 +1,14 @@
 // src/components/pages/ReengagementMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import mapboxgl, {
+  Map as MapboxMap,
+  Marker,
+  GeoJSONSource,
+  MapMouseEvent,
+  Popup,
+} from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+
 import * as turf from '@turf/turf';
 import type { Feature, FeatureCollection, LineString, Point, Polygon, MultiPolygon } from 'geojson';
 import type { MapGeoJSONFeature } from 'maplibre-gl';
@@ -79,15 +86,18 @@ const ORBIT_RADIUS_M = 70; // simple orbit after arrival (optional eye-candy)
 
 // ---------------- Component ----------------
 export default function MapLibreMap() {
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapEl = useRef<HTMLDivElement | null>(null);
 
-  const droneMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const droneMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const originPortRef = useRef<DronePort | null>(null);
 
   const videoRef = useRef<VideoReviewHandle | null>(null);
 
-  const [scanMode, setScanMode] = useState<ScanMode | null>(null);
+  type ScanMode = 'CLICK' | 'STREET' | 'FOI' | 'POI';
+  const [scanMode, setScanMode] = useState<ScanMode>('CLICK'); // ✅ circle area by default
+  
+
   const [missionGeom, setMissionGeom] = useState<{
     kind: ScanMode;
     center: Coord;
@@ -119,7 +129,7 @@ export default function MapLibreMap() {
   // reason the operator was considered "away"
   type AwayReason = 'tab-switch' | 'out-of-focus' | 'idle' | null;
   const [awayReason, setAwayReason] = useState<AwayReason>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
   // highlight currently selected event
   const [showReturnModal, setShowReturnModal] = useState(false);
   // new: events that were missed but not yet opened from the header dropdown
@@ -144,6 +154,12 @@ export default function MapLibreMap() {
 
   // const [streamStart] = useState(() => Date.now());
   const [streamStart, setStreamStart] = useState<number | null>(null);
+  mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
+  const MAP_STYLES = {
+    Streets: 'mapbox://styles/mapbox/streets-v12',
+    Satellite: 'mapbox://styles/mapbox/satellite-v9',
+  } as const;
+  
 
   const toggleFilter = (label: DetectionEvent['label']) => {
     setActiveFilters((prev) => {
@@ -177,205 +193,19 @@ export default function MapLibreMap() {
   // ---------- Map init ----------
   useEffect(() => {
     if (!mapEl.current) return;
-
-    const m = new maplibregl.Map({
+  
+    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
+  
+    const m = new mapboxgl.Map({
       container: mapEl.current,
-      style: {
-        version: 8,
-        glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-          },
-          missionGeom: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] } as FeatureCollection,
-          },
-          covered: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          remaining: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          annotations: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-            cluster: true, // ✅ enable clustering
-            clusterRadius: 50, // pixels around which points will group
-            clusterMaxZoom: 14, // stop clustering beyond this zoom
-          },
-          annotationsCategory: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-          },
-        },
-        layers: [
-          { id: 'osm', type: 'raster', source: 'osm' },
-          {
-            id: 'mission-fill',
-            type: 'fill',
-            source: 'missionGeom',
-            filter: ['==', ['geometry-type'], 'Polygon'],
-            paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
-          },
-          {
-            id: 'mission-outline',
-            type: 'line',
-            source: 'missionGeom',
-            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-            paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
-          },
-          {
-            id: 'path-covered',
-            type: 'line',
-            source: 'covered',
-            paint: { 'line-color': '#16a34a', 'line-width': 4 },
-          },
-          {
-            id: 'path-remaining',
-            type: 'line',
-            source: 'remaining',
-            paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
-          },
-
-          // --- 🔵 Category cluster background (colored circle)
-          {
-            id: 'category-clusters',
-            type: 'circle',
-            source: 'annotationsCategory',
-            paint: {
-              'circle-color': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                '#ef4444',
-                'person',
-                '#0ea5e9',
-                'chemical',
-                '#eab308',
-                'snapshot',
-                '#22c55e',
-                /* default */ '#6b7280',
-              ],
-              'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 22, 10, 28, 20, 34],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-
-          // --- 🖼 icon (white SVG) drawn on top of the circle
-          {
-            id: 'category-icons',
-            type: 'symbol',
-            source: 'annotationsCategory',
-            layout: {
-              'icon-image': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                'cat-fire',
-                'person',
-                'cat-person',
-                'chemical',
-                'cat-chemical',
-                'snapshot',
-                'cat-snapshot',
-                '', // fallback
-              ],
-              'icon-size': 0.7,
-              'icon-allow-overlap': true,
-            },
-          },
-
-          // --- 🔢 count number over everything
-          {
-            id: 'category-count',
-            type: 'symbol',
-            source: 'annotationsCategory',
-            layout: {
-              'text-field': '{count}', // show the count
-              'text-size': 11, // smaller font
-              'text-font': ['Open Sans Bold'],
-              'text-allow-overlap': true,
-              'text-offset': [0.7, -0.7], // move to top-right of the circle
-              'text-anchor': 'center',
-            },
-            paint: {
-              'text-color': '#fff',
-              'text-halo-color': '#000', // optional: small outline for readability
-              'text-halo-width': 1,
-            },
-          },
-          {
-            id: 'annots',
-            type: 'circle',
-            source: 'annotations',
-            // show only real (unclustered) events
-            filter: ['!', ['has', 'point_count']],
-            paint: {
-              'circle-radius': 8,
-              'circle-color': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                '#ef4444',
-                'people',
-                '#0ea5e9',
-                'person',
-                '#0ea5e9',
-                'chemical',
-                '#eab308',
-                'snapshot',
-                '#22c55e',
-                '#6b7280',
-              ],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-          {
-            id: 'clusters',
-            type: 'circle',
-            source: 'annotations',
-            filter: ['has', 'point_count'], // only clustered features
-            paint: {
-              'circle-color': '#0ea5e9',
-              'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-          {
-            id: 'cluster-count',
-            type: 'symbol',
-            source: 'annotations',
-            filter: ['has', 'point_count'],
-            layout: {
-              'text-field': '{point_count_abbreviated}',
-              'text-font': ['Open Sans Bold'],
-              'text-size': 14,
-            },
-            paint: { 'text-color': '#fff' },
-          },
-        ],
-      },
+      style: 'mapbox://styles/mapbox/streets-v12', // ✅ base style
       center: [11.506, 48.718],
       zoom: 13,
     });
-
+  
+  
     m.on('load', () => {
+      console.log('✅ Mapbox loaded');
       initialDronePorts.forEach(({ coord }) => {
         const el = document.createElement('div');
         el.style.width = '30px';
@@ -388,33 +218,187 @@ export default function MapLibreMap() {
         img.style.height = '100%';
         img.style.objectFit = 'contain';
         el.appendChild(img);
-        new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
+        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
-      // Load SVG icons (white fill so they stand out on coloured circle)
-      Object.entries(categoryIcons).forEach(([key, { svg: Icon }]) => {
-        const markup = renderToStaticMarkup(<Icon color="#fff" size={28} />);
-        const blob = new Blob([markup], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const img = new Image(32, 32);
-
-        img.onload = () => {
-          if (!m.hasImage(`cat-${key}`)) {
-            m.addImage(`cat-${key}`, img, { pixelRatio: 2 });
-          }
-          URL.revokeObjectURL(url);
-        };
-
-        img.src = url;
+  
+      // --- SOURCES ---
+      m.addSource('missionGeom', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      m.addSource('covered', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+      });
+      m.addSource('remaining', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+      });
+      m.addSource('annotations', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+        cluster: true,
+        clusterRadius: 50,
+        clusterMaxZoom: 14,
+      });
+      m.addSource('annotationsCategory', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+  
+      // --- LAYERS ---
+      m.addLayer({
+        id: 'mission-fill',
+        type: 'fill',
+        source: 'missionGeom',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
+      });
+  
+      m.addLayer({
+        id: 'mission-outline',
+        type: 'line',
+        source: 'missionGeom',
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+        paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
+      });
+  
+      m.addLayer({
+        id: 'path-covered',
+        type: 'line',
+        source: 'covered',
+        paint: { 'line-color': '#16a34a', 'line-width': 4 },
+      });
+  
+      m.addLayer({
+        id: 'path-remaining',
+        type: 'line',
+        source: 'remaining',
+        paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
+      });
+  
+      m.addLayer({
+        id: 'annots',
+        type: 'circle',
+        source: 'annotations',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': 8,
+          'circle-color': [
+            'match',
+            ['get', 'label'],
+            'fire',
+            '#ef4444',
+            'person',
+            '#0ea5e9',
+            'chemical',
+            '#eab308',
+            'snapshot',
+            '#22c55e',
+            '#6b7280',
+          ],
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      });
+  
+      m.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'annotations',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#0ea5e9',
+          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      });
+  
+      m.addLayer({
+        id: 'cluster-count',
+        type: 'symbol',
+        source: 'annotations',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': '{point_count_abbreviated}',
+          'text-font': ['Open Sans Bold'],
+          'text-size': 14,
+        },
+        paint: { 'text-color': '#fff' },
+      });
+  
+      m.addLayer({
+        id: 'category-clusters',
+        type: 'circle',
+        source: 'annotationsCategory',
+        paint: {
+          'circle-color': [
+            'match',
+            ['get', 'label'],
+            'fire',
+            '#ef4444',
+            'person',
+            '#0ea5e9',
+            'chemical',
+            '#eab308',
+            'snapshot',
+            '#22c55e',
+            '#6b7280',
+          ],
+          'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 22, 10, 28, 20, 34],
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      });
+  
+      m.addLayer({
+        id: 'category-icons',
+        type: 'symbol',
+        source: 'annotationsCategory',
+        layout: {
+          'icon-image': [
+            'match',
+            ['get', 'label'],
+            'fire',
+            'cat-fire',
+            'person',
+            'cat-person',
+            'chemical',
+            'cat-chemical',
+            'snapshot',
+            'cat-snapshot',
+            '',
+          ],
+          'icon-size': 0.7,
+          'icon-allow-overlap': true,
+        },
+      });
+  
+      m.addLayer({
+        id: 'category-count',
+        type: 'symbol',
+        source: 'annotationsCategory',
+        layout: {
+          'text-field': '{count}',
+          'text-size': 11,
+          'text-font': ['Open Sans Bold'],
+          'text-allow-overlap': true,
+          'text-offset': [0.7, -0.7],
+          'text-anchor': 'center',
+        },
+        paint: {
+          'text-color': '#fff',
+          'text-halo-color': '#000',
+          'text-halo-width': 1,
+        },
       });
     });
-
+  
     mapRef.current = m;
-
-    // ✅ Correct cleanup
-    return () => {
-      m.remove();
-    };
+    return () => m.remove();
   }, []);
+  
 
   // ---------- Mode → next map click defines target ----------
 
@@ -422,7 +406,7 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const onClick = (e: maplibregl.MapMouseEvent) => {
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
       if (missionActiveRef.current) return;
 
       const c: Coord = [e.lngLat.lng, e.lngLat.lat];
@@ -538,7 +522,7 @@ export default function MapLibreMap() {
     if (!m) return;
     if (!m.isStyleLoaded()) return;
 
-    const src = m.getSource('annotationsCategory') as maplibregl.GeoJSONSource | undefined;
+    const src = m.getSource('annotationsCategory') as mapboxgl.GeoJSONSource | undefined;
     if (!src) return;
 
     // ✅ keep only events that match the current filters
@@ -590,17 +574,17 @@ export default function MapLibreMap() {
     const features: any[] = [];
     if (opts.polygon) features.push(opts.polygon);
     if (opts.line) features.push(opts.line);
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features,
     } as FeatureCollection);
     // Reset path sources
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
     } as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -632,7 +616,7 @@ export default function MapLibreMap() {
 
     // draw the ring on the map for visual feedback
     const ring = turf.lineString(coords);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [ring],
     });
@@ -675,7 +659,7 @@ export default function MapLibreMap() {
     animate();
 
     const scanLine = turf.lineString(path);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [scanLine],
     });
@@ -702,6 +686,9 @@ export default function MapLibreMap() {
     el.style.height = '34px';
     el.style.transform = 'translate(-50%,-50%)';
     const img = document.createElement('img');
+    el.style.zIndex = '9999';
+    el.style.pointerEvents = 'none';
+    img.style.display = 'block';
     img.src = DroneIcon;
     img.alt = 'Drone';
     img.style.width = '100%';
@@ -709,7 +696,7 @@ export default function MapLibreMap() {
     el.appendChild(img);
 
     droneMarkerRef.current?.remove();
-    droneMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+    droneMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
       .setLngLat(origin.coord)
       .addTo(mapRef.current!);
 
@@ -727,7 +714,7 @@ export default function MapLibreMap() {
     }
 
     // ⭐ NEW popup to show live progress
-    const progressPopup = new maplibregl.Popup({
+    const progressPopup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
       className: 'drone-progress-popup',
@@ -747,7 +734,7 @@ export default function MapLibreMap() {
     const transitMs = totalDistM > 0 ? (totalDistM / DRONE_SPEED_MPS) * 1000 : 1;
 
     // Prime sources
-    (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(
+    (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(
       toTarget.geometry.coordinates.length >= 2
         ? toTarget
         : ({
@@ -756,7 +743,7 @@ export default function MapLibreMap() {
             properties: {},
           } as Feature<LineString>)
     );
-    (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -813,8 +800,8 @@ export default function MapLibreMap() {
           };
         }
 
-        (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData(covered);
-        (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(remaining);
+        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
+        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
 
         if (t < 1) {
           requestAnimationFrame(raf);
@@ -823,7 +810,7 @@ export default function MapLibreMap() {
           progressPopup.remove(); // <-- remove ETA popup here
 
           setInTransit(false);
-          (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+          (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: [] },
             properties: {},
@@ -931,7 +918,7 @@ export default function MapLibreMap() {
     const features = clusterByCategory(events, 200);
     console.log('⬆️ Updating annotationsCategory with', features.length, 'features');
 
-    (m.getSource('annotationsCategory') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('annotationsCategory') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features,
     });
@@ -1033,7 +1020,7 @@ export default function MapLibreMap() {
   //   markersRef.current.forEach((marker) => marker.remove());
   //   markersRef.current = [];
 
-  //   const popup = new maplibregl.Popup({ closeButton: false, offset: 25 });
+  //   const popup = new mapboxgl.Popup({ closeButton: false, offset: 25 });
 
   //   // ✅ filter using the shared Set of active filters
   //   const visible = events.filter((e) => activeFilters.has(e.label));
@@ -1043,7 +1030,7 @@ export default function MapLibreMap() {
   //     el.classList.add('map-marker');
   //     el.dataset.id = ev.id;
 
-  //     const marker = new maplibregl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+  //     const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
 
   //     // build the popup HTML
   //     const html =
@@ -1108,7 +1095,7 @@ export default function MapLibreMap() {
         ),
     };
 
-    (m.getSource('annotations') as maplibregl.GeoJSONSource).setData(collection);
+    (m.getSource('annotations') as mapboxgl.GeoJSONSource).setData(collection);
   }, [events, activeFilters]);
 
   useEffect(() => {
@@ -1136,7 +1123,7 @@ export default function MapLibreMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const popup = new maplibregl.Popup({
+    const popup = new mapboxgl.Popup({
       closeButton: false,
       closeOnClick: false,
     });
@@ -1145,7 +1132,7 @@ export default function MapLibreMap() {
     let isMouseOnPopup = false;
     let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
+    const onEnter = (e: mapboxgl.MapLayerMouseEvent) => {
       const feat = e.features?.[0];
       if (!feat) return;
 
@@ -1156,14 +1143,14 @@ export default function MapLibreMap() {
       let timestamps: number[] = [];
 
       try {
-        const parsedThumbs = JSON.parse(props.thumbnails);
+        const parsedThumbs = JSON.parse(props?.thumbnails ?? '[]');
         if (Array.isArray(parsedThumbs)) {
           thumbs = parsedThumbs.filter(
             (t: unknown): t is string => typeof t === 'string' && t.startsWith('data:image')
           );
         }
 
-        const parsedTimestamps = JSON.parse(props.timestamps);
+        const parsedTimestamps = JSON.parse(props?.timestamps ?? '[]');
         if (Array.isArray(parsedTimestamps)) {
           timestamps = parsedTimestamps.filter((t: unknown): t is number => typeof t === 'number');
         }
@@ -1196,8 +1183,8 @@ export default function MapLibreMap() {
       }
 
       container.innerHTML = `
-  <strong>${props.label}</strong><br/>
-  ${props.count} detections<br/>
+  <strong>${props?.label}</strong><br/>
+  ${props?.count} detections<br/>
   ${addressText}
   ${centerLat}, ${centerLng}
 `;
@@ -1270,7 +1257,7 @@ export default function MapLibreMap() {
 
             // ===== Incident label =====
             const title = document.createElement('h2');
-            title.textContent = props.label || 'Unknown Event';
+            title.textContent = props?.label || 'Unknown Event';
             title.style.marginBottom = '4px';
             overlay.appendChild(title);
 
@@ -1433,7 +1420,7 @@ export default function MapLibreMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
     const onEnter = (e: any) => {
       m.getCanvas().style.cursor = 'pointer';
@@ -1498,13 +1485,15 @@ export default function MapLibreMap() {
       popup.remove();
     };
   }, [events]);
-
   useEffect(() => {
-    if (mapRef.current) {
-      mapRef.current.resize();
-      // Expose the map instance for debugging
-    }
+    if (!mapRef.current) return;
+    // wait a bit for CSS transition to finish before resizing
+    const t = setTimeout(() => {
+      mapRef.current!.resize();
+    }, 300); // matches your CSS transition (0.3s)
+    return () => clearTimeout(t);
   }, [videoExpanded]);
+  
 
   // --- ✅ NEW: window focus/blur detection ---
   useEffect(() => {
@@ -1584,13 +1573,13 @@ export default function MapLibreMap() {
     setShowQuickBrief(false); // ✅ reset quick brief
     // clear sources
     const m = mapRef.current!;
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [],
     } as FeatureCollection);
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('annotations') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('annotations') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: events.map((ev) => ({
         type: 'Feature',
@@ -1663,7 +1652,7 @@ export default function MapLibreMap() {
         padding: '10px 12px',
         borderRadius: 10,
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-        zIndex: 2000,
+        zIndex: 101,
         fontWeight: 600,
       }}
     >
