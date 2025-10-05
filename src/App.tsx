@@ -108,7 +108,7 @@ function App() {
 
   // 🚀 If correct code entered → show your real app
   return (
-    <Router>
+    <Router basename="/Dronesimulation">
       <Routes>
         <Route path="/" element={<TasksPage />} />
         <Route path="/scenarios/feed" element={<ScenarioEventFeed />} /> 
