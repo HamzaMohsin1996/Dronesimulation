@@ -1,7 +1,7 @@
 // src/components/pages/ReengagementMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import mapboxgl, { Map as MapboxMap, Marker, GeoJSONSource, MapMouseEvent, Popup } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import type { Feature, FeatureCollection, LineString, Point, Polygon, MultiPolygon } from 'geojson';
 
@@ -34,15 +34,16 @@ const ORBIT_RADIUS_M = 70; // simple orbit after arrival (optional eye-candy)
 
 // ---------------- Component ----------------
 export default function ReengagementMap() {
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapEl = useRef<HTMLDivElement | null>(null);
 
-  const droneMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const droneMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const originPortRef = useRef<DronePort | null>(null);
 
   const videoRef = useRef<VideoReviewHandle | null>(null);
 
-  const [scanMode, setScanMode] = useState<ScanMode | null>(null);
+  const [scanMode, setScanMode] = useState<ScanMode>('CLICK');
+
   const [missionGeom, setMissionGeom] = useState<{
     kind: ScanMode;
     center: Coord;
@@ -50,6 +51,9 @@ export default function ReengagementMap() {
     line?: Feature<LineString>;
   } | null>(null);
   const [showFeed, setShowFeed] = useState(true);
+  useEffect(() => {
+    mapRef.current?.resize();
+  }, [showFeed]);
 
   const [missionActive, setMissionActive] = useState(false);
   const [inTransit, setInTransit] = useState(false);
@@ -77,7 +81,7 @@ export default function ReengagementMap() {
   // reason the operator was considered "away"
   type AwayReason = 'tab-switch' | 'out-of-focus' | 'idle' | null;
   const [awayReason, setAwayReason] = useState<AwayReason>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
   // highlight currently selected event
   const [showReturnModal, setShowReturnModal] = useState(false);
   // new: events that were missed but not yet opened from the header dropdown
@@ -86,6 +90,18 @@ export default function ReengagementMap() {
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
 
   const [videoExpanded, setVideoExpanded] = useState(false);
+  useEffect(() => {
+    mapRef.current?.resize();
+  }, [videoExpanded]);
+  useEffect(() => {
+    if (!mapEl.current) return;
+    const observer = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    observer.observe(mapEl.current);
+    return () => observer.disconnect();
+  }, []);
+
   const toggleVideo = () => setVideoExpanded((v) => !v);
 
   useEffect(() => {
@@ -95,102 +111,76 @@ export default function ReengagementMap() {
   useEffect(() => {
     if (!mapEl.current) return;
 
-    const m = new maplibregl.Map({
+    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
+
+    const m = new mapboxgl.Map({
       container: mapEl.current,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-          },
-          missionGeom: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] } as FeatureCollection,
-          },
-          covered: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          remaining: {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: [] },
-              properties: {},
-            },
-          },
-          annotations: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] } as FeatureCollection,
-          },
-        },
-        layers: [
-          { id: 'osm', type: 'raster', source: 'osm' },
-          {
-            id: 'mission-fill',
-            type: 'fill',
-            source: 'missionGeom',
-            filter: ['==', ['geometry-type'], 'Polygon'],
-            paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
-          },
-          {
-            id: 'mission-outline',
-            type: 'line',
-            source: 'missionGeom',
-            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-            paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
-          },
-          {
-            id: 'path-covered',
-            type: 'line',
-            source: 'covered',
-            paint: { 'line-color': '#16a34a', 'line-width': 4 },
-          },
-          {
-            id: 'path-remaining',
-            type: 'line',
-            source: 'remaining',
-            paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
-          },
-          {
-            id: 'annots',
-            type: 'circle',
-            source: 'annotations',
-            paint: {
-              'circle-radius': 8,
-              'circle-color': [
-                'match',
-                ['get', 'label'],
-                'fire',
-                '#ef4444',
-                'people',
-                '#0ea5e9',
-                'person',
-                '#0ea5e9',
-                'chemical',
-                '#eab308',
-                'snapshot',
-                '#22c55e',
-                '#6b7280',
-              ],
-              'circle-stroke-color': '#fff',
-              'circle-stroke-width': 2,
-            },
-          },
-        ],
-      },
+      style: 'mapbox://styles/mapbox/streets-v12',
       center: [11.506, 48.718],
       zoom: 13,
     });
 
     m.on('load', () => {
+      console.log('✅ Mapbox loaded');
+
+      // --- Add GeoJSON sources (same structure as before) ---
+      m.addSource('missionGeom', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      m.addSource('covered', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
+      });
+      m.addSource('remaining', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
+      });
+      m.addSource('annotations', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      // --- Layers ---
+      m.addLayer({
+        id: 'mission-fill',
+        type: 'fill',
+        source: 'missionGeom',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
+      });
+
+      m.addLayer({
+        id: 'mission-outline',
+        type: 'line',
+        source: 'missionGeom',
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+        paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
+      });
+
+      m.addLayer({
+        id: 'path-covered',
+        type: 'line',
+        source: 'covered',
+        paint: { 'line-color': '#16a34a', 'line-width': 4 },
+      });
+
+      m.addLayer({
+        id: 'path-remaining',
+        type: 'line',
+        source: 'remaining',
+        paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
+      });
+
+      // --- Add Drone Ports ---
       initialDronePorts.forEach(({ coord }) => {
         const el = document.createElement('div');
         el.style.width = '30px';
@@ -203,16 +193,13 @@ export default function ReengagementMap() {
         img.style.height = '100%';
         img.style.objectFit = 'contain';
         el.appendChild(img);
-        new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
+        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
     });
 
     mapRef.current = m;
 
-    // ✅ Correct cleanup
-    return () => {
-      m.remove();
-    };
+    return () => m.remove();
   }, []);
 
   // ---------- Mode → next map click defines target ----------
@@ -221,7 +208,7 @@ export default function ReengagementMap() {
     const m = mapRef.current;
     if (!m) return;
 
-    const onClick = (e: maplibregl.MapMouseEvent) => {
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
       if (missionActiveRef.current) return;
 
       const c: Coord = [e.lngLat.lng, e.lngLat.lat];
@@ -315,17 +302,17 @@ export default function ReengagementMap() {
     const features: any[] = [];
     if (opts.polygon) features.push(opts.polygon);
     if (opts.line) features.push(opts.line);
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features,
     } as FeatureCollection);
     // Reset path sources
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
     } as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -358,7 +345,7 @@ export default function ReengagementMap() {
     animate();
 
     const spiral = turf.lineString(coords);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [spiral],
     });
@@ -401,7 +388,7 @@ export default function ReengagementMap() {
     animate();
 
     const scanLine = turf.lineString(path);
-    (mapRef.current!.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [scanLine],
     });
@@ -435,7 +422,7 @@ export default function ReengagementMap() {
     el.appendChild(img);
 
     droneMarkerRef.current?.remove();
-    droneMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+    droneMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
       .setLngLat(origin.coord)
       .addTo(mapRef.current!);
 
@@ -467,7 +454,7 @@ export default function ReengagementMap() {
     const transitMs = totalDistM > 0 ? (totalDistM / DRONE_SPEED_MPS) * 1000 : 1;
 
     // Prime sources
-    (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(
+    (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(
       toTarget.geometry.coordinates.length >= 2
         ? toTarget
         : ({
@@ -476,7 +463,7 @@ export default function ReengagementMap() {
             properties: {},
           } as Feature<LineString>)
     );
-    (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData({
+    (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
@@ -525,15 +512,15 @@ export default function ReengagementMap() {
           };
         }
 
-        (mapRef.current!.getSource('covered') as maplibregl.GeoJSONSource).setData(covered);
-        (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData(remaining);
+        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
+        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
 
         if (t < 1) {
           requestAnimationFrame(raf);
         } else {
           // ✅ Arrived
           setInTransit(false);
-          (mapRef.current!.getSource('remaining') as maplibregl.GeoJSONSource).setData({
+          (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: [] },
             properties: {},
@@ -644,7 +631,7 @@ export default function ReengagementMap() {
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
-    const popup = new maplibregl.Popup({ closeButton: false, offset: 25 });
+    const popup = new mapboxgl.Popup({ closeButton: false, offset: 25 });
 
     const visible = eventFilter === 'all' ? events : events.filter((e) => e.label === eventFilter);
 
@@ -653,7 +640,7 @@ export default function ReengagementMap() {
       el.classList.add('map-marker');
       el.dataset.id = ev.id;
 
-      const marker = new maplibregl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
 
       // build the popup HTML
       const html =
@@ -722,7 +709,7 @@ export default function ReengagementMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
 
     const onEnter = (e: any) => {
       m.getCanvas().style.cursor = 'pointer';
@@ -845,13 +832,13 @@ export default function ReengagementMap() {
     setShowQuickBrief(false); // ✅ reset quick brief
     // clear sources
     const m = mapRef.current!;
-    (m.getSource('missionGeom') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [],
     } as FeatureCollection);
-    (m.getSource('covered') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('remaining') as maplibregl.GeoJSONSource).setData(turf.lineString([]) as any);
-    (m.getSource('annotations') as maplibregl.GeoJSONSource).setData({
+    (m.getSource('covered') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData(turf.lineString([]) as any);
+    (m.getSource('annotations') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: [],
     } as FeatureCollection);
@@ -920,7 +907,7 @@ export default function ReengagementMap() {
         padding: '10px 12px',
         borderRadius: 10,
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-        zIndex: 2000,
+        zIndex: 101,
         fontWeight: 600,
       }}
     >
@@ -1105,7 +1092,7 @@ export default function ReengagementMap() {
             top: '50%',
             left: showFeed ? 340 : 0, // move out when sidebar is open
             transform: 'translateY(-50%)',
-            zIndex: 4000,
+            zIndex: 101,
             background: showFeed ? '#0ea5e9' : '#111827',
             color: '#fff',
             border: 'none',
@@ -1141,7 +1128,7 @@ export default function ReengagementMap() {
               transition: 'all 0.3s ease',
               borderRadius: videoExpanded ? 8 : 0,
               overflow: 'hidden',
-              zIndex: 100,
+              zIndex: 102,
             }}
           />
 
@@ -1237,7 +1224,7 @@ export default function ReengagementMap() {
                 color: '#fff',
                 fontWeight: 700,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                zIndex: 2200,
+                zIndex: 99,
               }}
             >
               ⏹ End Mission
