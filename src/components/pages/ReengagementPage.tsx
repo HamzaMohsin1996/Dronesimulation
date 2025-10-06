@@ -60,12 +60,14 @@ export default function ReengagementMap() {
   const [etaText, setEtaText] = useState<string | null>(null);
 
   const [events, setEvents] = useState<DetectionEvent[]>([]);
+  const [eventFilter, setEventFilter] = useState<
+    'all' | 'fire' | 'chemical' | 'person' | 'snapshot'
+  >('all');
+
   const [draftPoints, setDraftPoints] = useState<Coord[]>([]);
   const missionActiveRef = useRef(false);
   const [showQuickBrief, setShowQuickBrief] = useState(false);
-  const [eventFilter, setEventFilter] = useState<
-    'all' | 'fire' | 'chemical' | 'snapshot' | 'person'
-  >('all');
+  const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]);
   // highlight last arrival
   const [newEventToast, setNewEventToast] = useState<DetectionEvent | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -88,6 +90,8 @@ export default function ReengagementMap() {
   const [notificationEvents, setNotificationEvents] = useState<DetectionEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
+  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [currentBoxes, setCurrentBoxes] = useState<DetectionEvent[]>([]);
 
   const [videoExpanded, setVideoExpanded] = useState(false);
   useEffect(() => {
@@ -439,14 +443,20 @@ export default function ReengagementMap() {
       toTarget = turf.lineString([origin.coord, center]) as Feature<LineString>;
     }
 
-    // Compute distance safely
+    // ⭐ NEW popup to show live progress
+    const progressPopup = new mapboxgl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      className: 'drone-progress-popup',
+    }).addTo(mapRef.current!);
+
+    // --- distance & time setup (unchanged) ---
     let totalDistKm = 0;
     if (toTarget.geometry.coordinates.length >= 2) {
       try {
         totalDistKm = turf.length(toTarget, { units: 'kilometers' });
       } catch (err) {
         console.warn('turf.length failed:', err);
-        totalDistKm = 0;
       }
     }
 
@@ -478,6 +488,7 @@ export default function ReengagementMap() {
     if (toTarget.geometry.coordinates.length >= 2 && totalDistKm > 0) {
       // Normal case → drone flies
       setMissionActive(true);
+      // setStreamStart(Date.now());
       setInTransit(true);
 
       let startTs: number | null = null;
@@ -491,7 +502,14 @@ export default function ReengagementMap() {
         const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
         const cur = pt.geometry.coordinates as Coord;
         droneMarkerRef.current?.setLngLat(cur);
-        console.log('Drone position:', cur, 'progress:', t);
+        // console.log('Drone position:', cur, 'progress:', t);
+
+        // ⭐ Update popup text/location each frame
+        const metersLeft = Math.max(0, totalDistM - distKm * 1000);
+        const secsLeft = Math.max(0, ((1 - t) * transitMs) / 1000).toFixed(0);
+        progressPopup
+          .setLngLat(cur)
+          .setHTML(`<strong>${Math.round(metersLeft)} m left</strong><br/>ETA ${secsLeft}s`);
 
         // update path slices
         let covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
@@ -519,6 +537,8 @@ export default function ReengagementMap() {
           requestAnimationFrame(raf);
         } else {
           // ✅ Arrived
+          progressPopup.remove(); // <-- remove ETA popup here
+
           setInTransit(false);
           (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
             type: 'Feature',
@@ -539,11 +559,86 @@ export default function ReengagementMap() {
       requestAnimationFrame(raf);
     } else {
       // Special case → no distance to fly
+      progressPopup.remove();
+
       setMissionActive(true);
       setInTransit(false);
       droneMarkerRef.current?.setLngLat(center);
       startOrbit(center);
     }
+    // inside startMission, after setMissionActive(true)
+    const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    // const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+    setWs(socket);
+
+    socket.onopen = () => {
+      console.log('🔌 Detection WebSocket connected');
+
+      // Send frames every 500 ms while mission is active
+      const sendLoop = setInterval(() => {
+        if (!missionActiveRef.current) {
+          clearInterval(sendLoop);
+          return;
+        }
+        if (!videoRef.current) return;
+
+        const frame = videoRef.current.captureFrame?.();
+
+        // ⬇️ get the *current* marker position just before sending
+        const pos = droneMarkerRef.current?.getLngLat();
+
+        if (frame && pos && socket.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              frame, // base64 JPEG from VideoReview
+              coord: [pos.lng, pos.lat], // <-- live [lon, lat]
+            })
+          );
+        }
+      }, 500);
+
+      socket.onclose = () => {
+        console.log('🔌 Detection WebSocket closed');
+        clearInterval(sendLoop);
+      };
+
+      socket.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+
+        const normalize = (l: string) =>
+          l.toLowerCase() === 'people' ? 'person' : l.toLowerCase();
+
+        const iconMap: Record<string, string> = {
+          fire: '🔥',
+          person: '👤',
+          chemical: '🧪',
+          snapshot: '📸',
+          car: '🚗', // add whatever else your backend might send
+          truck: '🚚',
+          animal: '🐾', // example extra
+        };
+
+        if (data.events) {
+          const fixed = data.events.map((e: DetectionEvent) => {
+            const label = normalize(e.label);
+            return {
+              ...e,
+              ts: e.ts && e.ts > 1e11 ? e.ts : Date.now(),
+              label,
+              icon: iconMap[label] || '📸', // fallback only if label missing
+            };
+          });
+
+          console.log(
+            'Adding events',
+            fixed.map((ev: DetectionEvent) => ({ label: ev.label, icon: ev.icon }))
+          );
+
+          setCurrentBoxes(fixed);
+          setAllEvents((prev) => [...prev, ...fixed]);
+        }
+      };
+    };
   };
 
   const startOrbit = (center: Coord) => {
