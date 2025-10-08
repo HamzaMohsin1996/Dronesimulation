@@ -22,7 +22,10 @@ const Header: React.FC<HeaderProps> = ({ notifications, onSelectNotification, ta
         <div className="row align-items-center">
           {/* --- Left: Logo & Breadcrumb --- */}
           <div className="col d-flex align-items-center">
-            <img src={logo} alt="Logo" className="logo" />
+            <NavLink to="/" aria-label="Go to home" className="logo-link">
+              <img src={logo} alt="Logo" className="logo" draggable={false} />
+            </NavLink>
+
             <div className="ms-3 d-flex flex-column">
               <span className="title">ILS Ingolstadt</span>
               <div className="d-flex align-items-center text-white small gap-2">
@@ -44,13 +47,9 @@ const Header: React.FC<HeaderProps> = ({ notifications, onSelectNotification, ta
                   <NavLink
                     key={tab.path}
                     to={tab.path}
-                    className={({ isActive }) =>
-                      `nav-tab ${isActive ? 'active' : ''}`
-                    }
+                    className={({ isActive }) => `nav-tab ${isActive ? 'active' : ''}`}
                   >
-                    <span style={{ fontSize: '1.2rem', marginRight: '0.3rem' }}>
-                      {tab.icon}
-                    </span>
+                    <span style={{ fontSize: '1.2rem', marginRight: '0.3rem' }}>{tab.icon}</span>
                     {tab.title}
                   </NavLink>
                 ))}
@@ -101,11 +100,7 @@ const Header: React.FC<HeaderProps> = ({ notifications, onSelectNotification, ta
                         <div className="label">{ev.label}</div>
                         <small>{new Date(ev.ts).toLocaleTimeString()}</small>
                         {ev.thumbnail && (
-                          <img
-                            src={ev.thumbnail}
-                            alt="snapshot"
-                            className="thumb"
-                          />
+                          <img src={ev.thumbnail} alt="snapshot" className="thumb" />
                         )}
                       </div>
                     </div>

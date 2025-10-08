@@ -1,17 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import mapboxgl, {
-  Map as MapboxMap,
-  Marker,
-  GeoJSONSource,
-  MapMouseEvent,
-  Popup,
-} from 'mapbox-gl';
+import mapboxgl, { Map as MapboxMap, Marker, GeoJSONSource, MapMouseEvent, Popup } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson';
-
+import Header from '../Header/Header';
+import PersonIcon from '../../assets/images/personMarker.svg';
 import DronePortIcon from '../../assets/images/icons/dronePort.svg';
 import DroneIcon from '../../assets/images/icons/twister.png';
+import type { DetectionEvent } from '../../shared/DetectionEvent';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
 
@@ -43,11 +39,18 @@ export default function ReengagementMap() {
   const [mapStyle, setMapStyle] = useState<'Streets' | 'Satellite'>('Streets');
   const [scanMode, setScanMode] = useState<ScanMode>('CLICK');
   const [streetDraft, setStreetDraft] = useState<Coord[]>([]);
-  const [missionGeom, setMissionGeom] = useState<{ center: Coord; shape?: Feature<Polygon>; line?: Feature<LineString>; } | null>(null);
+  const [notificationEvents, setNotificationEvents] = useState<DetectionEvent[]>([]);
+  const [missionGeom, setMissionGeom] = useState<{
+    center: Coord;
+    shape?: Feature<Polygon>;
+    line?: Feature<LineString>;
+  } | null>(null);
 
   const [missionActive, setMissionActive] = useState(false);
   const missionActiveRef = useRef(false);
-  useEffect(() => { missionActiveRef.current = missionActive; }, [missionActive]);
+  useEffect(() => {
+    missionActiveRef.current = missionActive;
+  }, [missionActive]);
 
   const droneMarkerRef = useRef<Marker | null>(null);
   const dronePopupRef = useRef<Popup | null>(null);
@@ -66,6 +69,54 @@ export default function ReengagementMap() {
   // fire detections
   const fireRef = useRef<Coord | null>(null);
   const fireHistoryRef = useRef<FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  // 🧍 Add draggable person (Pegman-style)
+  function addPersonMarker(m: MapboxMap) {
+    console.log('PersonIcon URL:', PersonIcon); // 👈 Add this line
+
+    const el = document.createElement('div');
+    el.style.width = '34px';
+    el.style.height = '34px';
+    el.style.cursor = 'grab';
+    const img = document.createElement('img');
+    img.src = PersonIcon;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    el.appendChild(img);
+
+    const personMarker = new mapboxgl.Marker({ element: el, draggable: true })
+      .setLngLat([11.506, 48.718])
+      .addTo(m);
+
+    personMarker.on('dragend', () => {
+      const pos = personMarker.getLngLat();
+      handlePersonDropped([pos.lng, pos.lat]);
+    });
+  }
+
+  function handlePersonDropped(coord: Coord) {
+    const m = mapRef.current;
+    if (!m) return;
+
+    const point = turf.point(coord);
+    const match = scannedRef.current.features.find((f) => turf.booleanPointInPolygon(point, f));
+
+    const popup = new mapboxgl.Popup().setLngLat(coord);
+
+    if (match) {
+      const { scannedAt } = match.properties as any;
+      popup
+        .setHTML(
+          `<div style="text-align:center;">
+           <strong>📸 Scanned Area</strong><br/>
+           Time: ${new Date(scannedAt).toLocaleTimeString()}<br/>
+           <img src="https://placekitten.com/280/180" width="220" style="margin-top:8px;border-radius:8px;" />
+         </div>`
+        )
+        .addTo(m);
+    } else {
+      popup.setHTML('<b>No scan data for this area</b>').addTo(m);
+    }
+  }
 
   // --------------------------------------------------------
   // Map creation
@@ -83,6 +134,7 @@ export default function ReengagementMap() {
     m.on('load', () => {
       addCustomSourcesAndLayers(m);
       addDronePorts(m);
+      addPersonMarker(m);
       styleReadyRef.current = true;
 
       // --- Hover popup for historical fires ---
@@ -95,10 +147,12 @@ export default function ReengagementMap() {
         const timeStr = new Date(detectedAt).toLocaleTimeString();
         const popup = new mapboxgl.Popup({ closeButton: false })
           .setLngLat([lng, lat])
-          .setHTML(`<strong>🔥 Fire</strong><br/>
+          .setHTML(
+            `<strong>🔥 Fire</strong><br/>
                     Time: ${timeStr}<br/>
                     Lat: ${lat.toFixed(5)}<br/>
-                    Lng: ${lng.toFixed(5)}`)
+                    Lng: ${lng.toFixed(5)}`
+          )
           .addTo(m);
         m.once('mouseleave', 'fire-history', () => popup.remove());
       });
@@ -115,94 +169,136 @@ export default function ReengagementMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
+
     styleReadyRef.current = false;
+
+    // Wait until the new style finishes loading
     m.setStyle(MAP_STYLES[mapStyle]);
-    m.once('styledata', () => {
+
+    const onStyleLoad = () => {
       addCustomSourcesAndLayers(m);
       addDronePorts(m);
+      // ❌ DO NOT call addPersonMarker here again!
       styleReadyRef.current = true;
       redrawLayers();
-    });
+    };
+
+    m.once('style.load', onStyleLoad);
+
+    return () => {
+      m.off('style.load', onStyleLoad);
+    };
   }, [mapStyle]);
 
   const addCustomSourcesAndLayers = (m: MapboxMap) => {
     const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
-    const addSource = (id: string) => { if (!m.getSource(id)) m.addSource(id, { type: 'geojson', data: empty }); };
+    const addSource = (id: string) => {
+      if (!m.getSource(id)) m.addSource(id, { type: 'geojson', data: empty });
+    };
 
-    addSource('missionGeom'); addSource('covered'); addSource('remaining');
-    addSource('sensorFov');  addSource('scanOrbit'); addSource('scanned');
-    addSource('fire-center'); addSource('fire-history');
+    addSource('missionGeom');
+    addSource('covered');
+    addSource('remaining');
+    addSource('sensorFov');
+    addSource('scanOrbit');
+    addSource('scanned');
+    addSource('fire-center');
+    addSource('fire-history');
 
     // mission layers
-    if (!m.getLayer('mission-fill')) m.addLayer({
-      id: 'mission-fill', type: 'fill', source: 'missionGeom',
-      paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.18 },
-      filter: ['==', ['geometry-type'], 'Polygon'],
-    });
-    if (!m.getLayer('mission-outline')) m.addLayer({
-      id: 'mission-outline', type: 'line', source: 'missionGeom',
-      paint: { 'line-color': '#0ea5e9', 'line-width': 2 },
-    });
+    if (!m.getLayer('mission-fill'))
+      m.addLayer({
+        id: 'mission-fill',
+        type: 'fill',
+        source: 'missionGeom',
+        paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.18 },
+        filter: ['==', ['geometry-type'], 'Polygon'],
+      });
+    if (!m.getLayer('mission-outline'))
+      m.addLayer({
+        id: 'mission-outline',
+        type: 'line',
+        source: 'missionGeom',
+        paint: { 'line-color': '#0ea5e9', 'line-width': 2 },
+      });
 
     // travel path & orbit
-    if (!m.getLayer('path-covered')) m.addLayer({
-      id: 'path-covered', type: 'line', source: 'covered',
-      paint: { 'line-color': '#16a34a', 'line-width': 4 },
-    });
-    if (!m.getLayer('path-remaining')) m.addLayer({
-      id: 'path-remaining', type: 'line', source: 'remaining',
-      paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
-    });
-    if (!m.getLayer('scan-orbit')) m.addLayer({
-      id: 'scan-orbit', type: 'line', source: 'scanOrbit',
-      paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [4, 2] },
-    });
+    if (!m.getLayer('path-covered'))
+      m.addLayer({
+        id: 'path-covered',
+        type: 'line',
+        source: 'covered',
+        paint: { 'line-color': '#16a34a', 'line-width': 4 },
+      });
+    if (!m.getLayer('path-remaining'))
+      m.addLayer({
+        id: 'path-remaining',
+        type: 'line',
+        source: 'remaining',
+        paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
+      });
+    if (!m.getLayer('scan-orbit'))
+      m.addLayer({
+        id: 'scan-orbit',
+        type: 'line',
+        source: 'scanOrbit',
+        paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [4, 2] },
+      });
 
     // live sensor FOV
-    if (!m.getLayer('sensor-fov')) m.addLayer({
-      id: 'sensor-fov', type: 'fill', source: 'sensorFov',
-      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.3, 'fill-outline-color': '#16a34a' },
-    });
+    if (!m.getLayer('sensor-fov'))
+      m.addLayer({
+        id: 'sensor-fov',
+        type: 'fill',
+        source: 'sensorFov',
+        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.3, 'fill-outline-color': '#16a34a' },
+      });
 
     // scanned history
-    if (!m.getLayer('scanned-fill')) m.addLayer({
-      id: 'scanned-fill', type: 'fill', source: 'scanned',
-      paint: { 'fill-color': '#ff6b00', 'fill-opacity': 0.1, 'fill-outline-color': '#ff6b00' },
-    });
+    if (!m.getLayer('scanned-fill'))
+      m.addLayer({
+        id: 'scanned-fill',
+        type: 'fill',
+        source: 'scanned',
+        paint: { 'fill-color': '#ff6b00', 'fill-opacity': 0.1, 'fill-outline-color': '#ff6b00' },
+      });
 
     // current fire icon & glow
-    if (!m.getLayer('fire-halo')) m.addLayer({
-      id: 'fire-halo',
-      type: 'circle',
-      source: 'fire-center',
-      paint: {
-        'circle-radius': 18,
-        'circle-color': 'rgba(255,80,0,0.25)',
-        'circle-stroke-color': '#ff3b00',
-        'circle-stroke-width': 2,
-        'circle-blur': 0.4
-      }
-    });
-    if (!m.getLayer('fire-icon')) m.addLayer({
-      id: 'fire-icon',
-      type: 'symbol',
-      source: 'fire-center',
-      layout: { 'text-field': '🔥', 'text-size': 24, 'text-anchor': 'center' }
-    });
+    if (!m.getLayer('fire-halo'))
+      m.addLayer({
+        id: 'fire-halo',
+        type: 'circle',
+        source: 'fire-center',
+        paint: {
+          'circle-radius': 18,
+          'circle-color': 'rgba(255,80,0,0.25)',
+          'circle-stroke-color': '#ff3b00',
+          'circle-stroke-width': 2,
+          'circle-blur': 0.4,
+        },
+      });
+    if (!m.getLayer('fire-icon'))
+      m.addLayer({
+        id: 'fire-icon',
+        type: 'symbol',
+        source: 'fire-center',
+        layout: { 'text-field': '🔥', 'text-size': 24, 'text-anchor': 'center' },
+      });
 
     // historical fire points (small dots)
-    if (!m.getLayer('fire-history')) m.addLayer({
-      id: 'fire-history',
-      type: 'circle',
-      source: 'fire-history',
-      paint: {
-        'circle-radius': 7,
-        'circle-color': '#ff3b00',
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1,
-        'circle-opacity': 0.8
-      }
-    });
+    if (!m.getLayer('fire-history'))
+      m.addLayer({
+        id: 'fire-history',
+        type: 'circle',
+        source: 'fire-history',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': '#ff3b00',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1,
+          'circle-opacity': 0.8,
+        },
+      });
   };
 
   const redrawLayers = () => {
@@ -212,18 +308,20 @@ export default function ReengagementMap() {
     (m.getSource('scanned') as GeoJSONSource | undefined)?.setData(scannedRef.current);
     (m.getSource('fire-center') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
-      features: fireRef.current ? [turf.point(fireRef.current)] : []
+      features: fireRef.current ? [turf.point(fireRef.current)] : [],
     });
     (m.getSource('fire-history') as GeoJSONSource | undefined)?.setData(fireHistoryRef.current);
   };
 
   const addDronePorts = (m: MapboxMap) => {
-    DRONE_PORTS.forEach(coord => {
+    DRONE_PORTS.forEach((coord) => {
       const el = document.createElement('div');
-      el.style.width = '30px'; el.style.height = '30px';
+      el.style.width = '30px';
+      el.style.height = '30px';
       const img = document.createElement('img');
       img.src = DronePortIcon;
-      img.style.width = '100%'; img.style.height = '100%';
+      img.style.width = '100%';
+      img.style.height = '100%';
       el.appendChild(img);
       new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
     });
@@ -237,26 +335,37 @@ export default function ReengagementMap() {
       if (!styleReadyRef.current || missionActiveRef.current) return;
       const c: Coord = [e.lngLat.lng, e.lngLat.lat];
 
-      if (e.originalEvent.shiftKey) { setGimbalTarget(c); return; }
+      if (e.originalEvent.shiftKey) {
+        setGimbalTarget(c);
+        return;
+      }
 
       if (scanMode === 'CLICK') {
-        const circle = turf.circle(c, DEFAULT_SCAN_RADIUS_M, { units: 'meters' }) as Feature<Polygon>;
-        setMissionGeom({ center: c, shape: circle }); setGimbalTarget(c);
-        setStreetDraft([]); updateMissionSource(circle); return;
+        const circle = turf.circle(c, DEFAULT_SCAN_RADIUS_M, {
+          units: 'meters',
+        }) as Feature<Polygon>;
+        setMissionGeom({ center: c, shape: circle });
+        setGimbalTarget(c);
+        setStreetDraft([]);
+        updateMissionSource(circle);
+        return;
       }
 
       if (scanMode === 'STREET') {
-        setStreetDraft(prev => {
+        setStreetDraft((prev) => {
           const next = [...prev, c].slice(-2);
           if (next.length === 1) {
             const dot = turf.circle(c, 8, { units: 'meters' }) as Feature<Polygon>;
-            setMissionGeom({ center: c }); setGimbalTarget(c); updateMissionSource(dot);
+            setMissionGeom({ center: c });
+            setGimbalTarget(c);
+            updateMissionSource(dot);
           }
           if (next.length === 2) {
             const line = turf.lineString(next) as Feature<LineString>;
             const buf = turf.buffer(line, STREET_BUFFER_M, { units: 'meters' }) as Feature<Polygon>;
             const center = turf.center(line).geometry.coordinates as Coord;
-            setMissionGeom({ center, shape: buf, line }); setGimbalTarget(center);
+            setMissionGeom({ center, shape: buf, line });
+            setGimbalTarget(center);
             updateMissionSource(buf, line);
           }
           return next;
@@ -268,38 +377,57 @@ export default function ReengagementMap() {
   }, [scanMode]);
 
   const updateMissionSource = (polygon?: Feature<Polygon>, line?: Feature<LineString>) => {
-    const m = mapRef.current; if (!m || !styleReadyRef.current) return;
-    const feats: any[] = []; if (polygon) feats.push(polygon); if (line) feats.push(line);
-    (m.getSource('missionGeom') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: feats });
+    const m = mapRef.current;
+    if (!m || !styleReadyRef.current) return;
+    const feats: any[] = [];
+    if (polygon) feats.push(polygon);
+    if (line) feats.push(line);
+    (m.getSource('missionGeom') as GeoJSONSource | undefined)?.setData({
+      type: 'FeatureCollection',
+      features: feats,
+    });
   };
 
   const nearestPort = (pt: Coord): Coord =>
-    DRONE_PORTS.reduce((best, p) => turf.distance(best, pt) < turf.distance(p, pt) ? best : p, DRONE_PORTS[0]);
+    DRONE_PORTS.reduce(
+      (best, p) => (turf.distance(best, pt) < turf.distance(p, pt) ? best : p),
+      DRONE_PORTS[0]
+    );
 
   const startMission = () => {
     if (!missionGeom) return;
-    const m = mapRef.current; if (!m || !styleReadyRef.current) return;
+    const m = mapRef.current;
+    if (!m || !styleReadyRef.current) return;
 
     const origin = nearestPort(missionGeom.center);
     const center = missionGeom.center;
     const orbit = turf.circle(center, ORBIT_RADIUS_M, { units: 'meters' });
     (m.getSource('scanOrbit') as GeoJSONSource | undefined)?.setData(orbit);
 
-    const el = document.createElement('div'); el.style.width = '34px'; el.style.height = '34px';
-    const img = document.createElement('img'); img.src = DroneIcon;
-    img.style.width = '100%'; img.style.height = '100%'; el.appendChild(img);
+    const el = document.createElement('div');
+    el.style.width = '34px';
+    el.style.height = '34px';
+    const img = document.createElement('img');
+    img.src = DroneIcon;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    el.appendChild(img);
     droneMarkerRef.current?.remove();
-    droneMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(origin).addTo(m);
+    droneMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat(origin)
+      .addTo(m);
 
     const popup = new mapboxgl.Popup({ closeButton: false, offset: 25 }).setHTML('');
-    popup.addTo(m); dronePopupRef.current = popup; droneMarkerRef.current.setPopup(popup);
+    popup.addTo(m);
+    dronePopupRef.current = popup;
+    droneMarkerRef.current.setPopup(popup);
 
     setMissionActive(true);
     scannedRef.current = { type: 'FeatureCollection', features: [] };
 
     const toTarget = turf.lineString([origin, center]) as Feature<LineString>;
     const distKm = turf.length(toTarget, { units: 'kilometers' });
-    const durationMs = (distKm * 1000 / DRONE_SPEED_MPS) * 1000;
+    const durationMs = ((distKm * 1000) / DRONE_SPEED_MPS) * 1000;
 
     let startTs: number | null = null;
     const animate = (now: number) => {
@@ -313,7 +441,11 @@ export default function ReengagementMap() {
       const remainingKm = distKm * (1 - t);
       setDistKmLeft(remainingKm);
       setEtaSec((remainingKm * 1000) / DRONE_SPEED_MPS);
-      dronePopupRef.current?.setHTML(`ETA: ${Math.ceil((remainingKm * 1000) / DRONE_SPEED_MPS)} s<br/>Dist: ${remainingKm.toFixed(2)} km`);
+      dronePopupRef.current?.setHTML(
+        `ETA: ${Math.ceil(
+          (remainingKm * 1000) / DRONE_SPEED_MPS
+        )} s<br/>Dist: ${remainingKm.toFixed(2)} km`
+      );
 
       if (styleReadyRef.current) {
         const covered = turf.lineSlice(turf.point(origin), curPt, toTarget);
@@ -323,7 +455,10 @@ export default function ReengagementMap() {
       }
 
       if (t < 1) animationFrame.current = requestAnimationFrame(animate);
-      else { showArrivalToast(); startOrbit(center); }
+      else {
+        showArrivalToast();
+        startOrbit(center);
+      }
     };
     if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     animationFrame.current = requestAnimationFrame(animate);
@@ -331,16 +466,24 @@ export default function ReengagementMap() {
 
   function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
     const halfW = SENSOR_WIDTH / 2;
-    const backLeft  = turf.destination(center, halfW, heading - 90, { units: 'meters' }).geometry.coordinates as Coord;
-    const backRight = turf.destination(center, halfW, heading + 90, { units: 'meters' }).geometry.coordinates as Coord;
-    const frontLeft  = turf.destination(backLeft,  SENSOR_DEPTH, heading, { units: 'meters' }).geometry.coordinates as Coord;
-    const frontRight = turf.destination(backRight, SENSOR_DEPTH, heading, { units: 'meters' }).geometry.coordinates as Coord;
-    return turf.polygon([[backLeft, frontLeft, frontRight, backRight, backLeft]], { scannedAt: Date.now() });
+    const backLeft = turf.destination(center, halfW, heading - 90, { units: 'meters' }).geometry
+      .coordinates as Coord;
+    const backRight = turf.destination(center, halfW, heading + 90, { units: 'meters' }).geometry
+      .coordinates as Coord;
+    const frontLeft = turf.destination(backLeft, SENSOR_DEPTH, heading, { units: 'meters' })
+      .geometry.coordinates as Coord;
+    const frontRight = turf.destination(backRight, SENSOR_DEPTH, heading, { units: 'meters' })
+      .geometry.coordinates as Coord;
+    return turf.polygon([[backLeft, frontLeft, frontRight, backRight, backLeft]], {
+      scannedAt: Date.now(),
+    });
   }
 
   const startOrbit = (center: Coord) => {
-    const ring = turf.circle(center, ORBIT_RADIUS_M, { units: 'meters', steps: 180 }).geometry.coordinates[0] as Coord[];
-    let i = 0; const m = mapRef.current!;
+    const ring = turf.circle(center, ORBIT_RADIUS_M, { units: 'meters', steps: 180 }).geometry
+      .coordinates[0] as Coord[];
+    let i = 0;
+    const m = mapRef.current!;
     const loop = () => {
       if (!missionActiveRef.current) return;
       const cur = ring[i];
@@ -358,7 +501,7 @@ export default function ReengagementMap() {
 
         (m.getSource('fire-center') as GeoJSONSource)?.setData({
           type: 'FeatureCollection',
-          features: [feature]
+          features: [feature],
         });
         (m.getSource('fire-history') as GeoJSONSource)?.setData(fireHistoryRef.current);
       }
@@ -375,11 +518,15 @@ export default function ReengagementMap() {
 
   const endMission = () => {
     setMissionActive(false);
-    setEtaSec(null); setDistKmLeft(null);
+    setEtaSec(null);
+    setDistKmLeft(null);
     if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     droneMarkerRef.current?.remove();
     dronePopupRef.current?.remove();
-    (mapRef.current?.getSource('sensorFov') as GeoJSONSource)?.setData({ type: 'FeatureCollection', features: [] });
+    (mapRef.current?.getSource('sensorFov') as GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: [],
+    });
   };
 
   const showArrivalToast = () => {
@@ -387,8 +534,14 @@ export default function ReengagementMap() {
     setTimeout(() => setArrivalToast(null), 3500);
   };
 
+  const handleSelectNotification = (ev: DetectionEvent) => {
+    console.log('Selected notification:', ev);
+    // navigate, open drawer, mark read, etc.
+  };
   const btnStyle = (on: boolean): React.CSSProperties => ({
-    width: 44, height: 44, borderRadius: '50%',
+    width: 44,
+    height: 44,
+    borderRadius: '50%',
     background: on ? '#111827' : '#fff',
     color: on ? '#fff' : '#111',
     border: '1px solid #e5e7eb',
@@ -399,59 +552,117 @@ export default function ReengagementMap() {
 
   return (
     <>
-      <div style={{ height: 60, background: '#111827', color: '#fff',
-                    display: 'flex', alignItems: 'center', paddingLeft: 16, fontWeight: 600 }}>
+      {/* <div
+        style={{
+          height: 60,
+          background: '#111827',
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 16,
+          fontWeight: 600,
+        }}
+      >
         Firefighter Drone Ops
-      </div>
+      </div> */}
+      <Header notifications={[]} onSelectNotification={() => {}} />
 
       <div style={{ position: 'relative', height: 'calc(100vh - 60px)' }}>
         <div ref={mapEl} style={{ position: 'absolute', inset: 0 }} />
 
         <LayersControl current={mapStyle} onChange={setMapStyle} />
 
-        <div style={{ position: 'absolute', top: '50%', right: 20,
-                      transform: 'translateY(-50%)', display: 'flex',
-                      flexDirection: 'column', gap: 12 }}>
-          <button style={btnStyle(scanMode === 'CLICK')}
-                  onClick={() => { setScanMode('CLICK'); setStreetDraft([]); }}
-                  title="Area scan">📍</button>
-          <button style={btnStyle(scanMode === 'STREET')}
-                  onClick={() => { setScanMode('STREET'); setStreetDraft([]);
-                                   setMissionGeom(g => g ? { center: g.center } : null); }}
-                  title="Street segment">📏</button>
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            right: 20,
+            transform: 'translateY(-50%)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <button
+            style={btnStyle(scanMode === 'CLICK')}
+            onClick={() => {
+              setScanMode('CLICK');
+              setStreetDraft([]);
+            }}
+            title="Area scan"
+          >
+            📍
+          </button>
+          <button
+            style={btnStyle(scanMode === 'STREET')}
+            onClick={() => {
+              setScanMode('STREET');
+              setStreetDraft([]);
+              setMissionGeom((g) => (g ? { center: g.center } : null));
+            }}
+            title="Street segment"
+          >
+            📏
+          </button>
         </div>
 
         {!missionActive && (
-          <button onClick={startMission}
-                  disabled={!missionGeom?.center}
-                  style={{
-                    position: 'absolute', bottom: 24, left: 20,
-                    padding: '10px 16px', borderRadius: 8,
-                    background: missionGeom?.center ? '#16a34a' : '#9ca3af',
-                    color: '#fff', fontWeight: 700,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    cursor: missionGeom?.center ? 'pointer' : 'not-allowed',
-                  }}>🚀 Start Mission</button>
+          <button
+            onClick={startMission}
+            disabled={!missionGeom?.center}
+            style={{
+              position: 'absolute',
+              bottom: 24,
+              left: 20,
+              padding: '10px 16px',
+              borderRadius: 8,
+              background: missionGeom?.center ? '#16a34a' : '#9ca3af',
+              color: '#fff',
+              fontWeight: 700,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              cursor: missionGeom?.center ? 'pointer' : 'not-allowed',
+            }}
+          >
+            🚀 Start Mission
+          </button>
         )}
 
         {missionActive && (
-          <button onClick={endMission}
-                  style={{
-                    position: 'absolute', bottom: 24, left: 20,
-                    padding: '10px 16px', borderRadius: 8,
-                    background: '#111827', color: '#fff', fontWeight: 700,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  }}>⏹ End Mission</button>
+          <button
+            onClick={endMission}
+            style={{
+              position: 'absolute',
+              bottom: 24,
+              left: 20,
+              padding: '10px 16px',
+              borderRadius: 8,
+              background: '#111827',
+              color: '#fff',
+              fontWeight: 700,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            }}
+          >
+            ⏹ End Mission
+          </button>
         )}
 
         {arrivalToast && (
-          <div style={{
-            position: 'absolute', top: 20, left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#111827', color: '#fff',
-            padding: '10px 16px', borderRadius: 12,
-            boxShadow: '0 6px 18px rgba(0,0,0,0.25)', fontWeight: 700,
-          }}>{arrivalToast}</div>
+          <div
+            style={{
+              position: 'absolute',
+              top: 20,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: '#111827',
+              color: '#fff',
+              padding: '10px 16px',
+              borderRadius: 12,
+              boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+              fontWeight: 700,
+            }}
+          >
+            {arrivalToast}
+          </div>
         )}
       </div>
     </>
@@ -460,17 +671,21 @@ export default function ReengagementMap() {
 
 /* Floating basemap toggle */
 function LayersControl({
-  current, onChange,
+  current,
+  onChange,
 }: {
   current: keyof typeof MAP_STYLES;
   onChange: (s: keyof typeof MAP_STYLES) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const styleId = (key: keyof typeof MAP_STYLES) =>
-    MAP_STYLES[key].replace('mapbox://styles/', '');
+  const styleId = (key: keyof typeof MAP_STYLES) => MAP_STYLES[key].replace('mapbox://styles/', '');
   const thumb = (key: keyof typeof MAP_STYLES) =>
-    `https://api.mapbox.com/styles/v1/${styleId(key)}/static/11.506,48.718,12/100x100?access_token=${mapboxgl.accessToken}`;
-  const options = (Object.keys(MAP_STYLES) as (keyof typeof MAP_STYLES)[]).filter(k => k !== current);
+    `https://api.mapbox.com/styles/v1/${styleId(
+      key
+    )}/static/11.506,48.718,12/100x100?access_token=${mapboxgl.accessToken}`;
+  const options = (Object.keys(MAP_STYLES) as (keyof typeof MAP_STYLES)[]).filter(
+    (k) => k !== current
+  );
 
   return (
     <div
@@ -491,14 +706,30 @@ function LayersControl({
       aria-label="Map layers selector"
     >
       <div style={{ padding: 6, fontWeight: 700, textAlign: 'center' }}>Layers</div>
-      <img src={thumb(current)} alt={`${current} preview`} width={100} height={100} style={{ display: 'block' }} />
-      {open && options.map(name => (
-        <div key={name} onClick={() => onChange(name)}
-             style={{ borderTop: '1px solid #eee', background: '#fafafa' }}>
-          <img src={thumb(name)} alt={`${name} preview`} width={100} height={100} style={{ display: 'block' }} />
-          <div style={{ textAlign: 'center', padding: 6, fontWeight: 600 }}>{name}</div>
-        </div>
-      ))}
+      <img
+        src={thumb(current)}
+        alt={`${current} preview`}
+        width={100}
+        height={100}
+        style={{ display: 'block' }}
+      />
+      {open &&
+        options.map((name) => (
+          <div
+            key={name}
+            onClick={() => onChange(name)}
+            style={{ borderTop: '1px solid #eee', background: '#fafafa' }}
+          >
+            <img
+              src={thumb(name)}
+              alt={`${name} preview`}
+              width={100}
+              height={100}
+              style={{ display: 'block' }}
+            />
+            <div style={{ textAlign: 'center', padding: 6, fontWeight: 600 }}>{name}</div>
+          </div>
+        ))}
     </div>
   );
 }
