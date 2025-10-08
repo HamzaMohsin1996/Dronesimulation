@@ -1,12 +1,6 @@
 // src/components/pages/ReengagementMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import mapboxgl, {
-  Map as MapboxMap,
-  Marker,
-  GeoJSONSource,
-  MapMouseEvent,
-  Popup,
-} from 'mapbox-gl';
+import mapboxgl, { Map as MapboxMap, Marker, GeoJSONSource, MapMouseEvent, Popup } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 import * as turf from '@turf/turf';
@@ -46,7 +40,7 @@ const initialDronePorts: DronePort[] = [
 
 // Mission modes (as you asked: STREET / POI / FOI; plus CLICK if you want a quick circle)
 type ScanMode = 'STREET' | 'POI' | 'FOI' | 'CLICK';
-  
+
 const DEFAULT_SCAN_RADIUS_M = 120; // for CLICK/POI circle polygon
 const STREET_BUFFER_M = 25; // buffered corridor for STREET
 const DRONE_SPEED_MPS = 15; // used to compute ETA (≈54 km/h)
@@ -71,16 +65,15 @@ export default function MapLibreMap() {
   } | null>(null);
   const [showFeed, setShowFeed] = useState(true);
   useEffect(() => {
-      if (!mapRef.current) return;
-    
-      // Wait for layout transition to finish
-      const timer = setTimeout(() => {
-        mapRef.current!.resize();
-      }, 300); // match your CSS transition time (0.3s)
-      
-      return () => clearTimeout(timer);
-    }, [showFeed]);
-    
+    if (!mapRef.current) return;
+
+    // Wait for layout transition to finish
+    const timer = setTimeout(() => {
+      mapRef.current!.resize();
+    }, 300); // match your CSS transition time (0.3s)
+
+    return () => clearTimeout(timer);
+  }, [showFeed]);
 
   const [missionActive, setMissionActive] = useState(false);
   const [inTransit, setInTransit] = useState(false);
@@ -116,7 +109,6 @@ export default function MapLibreMap() {
   const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]);
   const [recap, setRecap] = useState<any | null>(null);
 
-
   // ✅ all unique labels we’ve actually received so far
   const detectedLabels = React.useMemo(() => {
     const s = new Set<string>();
@@ -148,19 +140,19 @@ export default function MapLibreMap() {
   // ---------- Map init ----------
   useEffect(() => {
     if (!mapEl.current) return;
-  
+
     mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
-  
+
     const m = new mapboxgl.Map({
       container: mapEl.current,
       style: 'mapbox://styles/mapbox/streets-v12',
       center: [11.506, 48.718],
       zoom: 13,
     });
-  
+
     m.on('load', () => {
       console.log('✅ Mapbox loaded');
-  
+
       // --- Add custom sources ---
       m.addSource('missionGeom', {
         type: 'geojson',
@@ -168,17 +160,25 @@ export default function MapLibreMap() {
       });
       m.addSource('covered', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
       });
       m.addSource('remaining', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
       });
       m.addSource('pinnedEvents', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
-  
+
       // --- Add layers (just like before) ---
       m.addLayer({
         id: 'mission-fill',
@@ -187,7 +187,7 @@ export default function MapLibreMap() {
         filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
       });
-  
+
       m.addLayer({
         id: 'mission-outline',
         type: 'line',
@@ -195,21 +195,21 @@ export default function MapLibreMap() {
         filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
         paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
       });
-  
+
       m.addLayer({
         id: 'path-covered',
         type: 'line',
         source: 'covered',
         paint: { 'line-color': '#16a34a', 'line-width': 4 },
       });
-  
+
       m.addLayer({
         id: 'path-remaining',
         type: 'line',
         source: 'remaining',
         paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
       });
-  
+
       // --- Add your drone port icons as markers ---
       initialDronePorts.forEach(({ coord }) => {
         const el = document.createElement('div');
@@ -226,12 +226,12 @@ export default function MapLibreMap() {
         new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
     });
-  
+
     mapRef.current = m;
-  
+
     return () => m.remove();
   }, []);
-  
+
   // 👇 Add this effect inside your component
   useEffect(() => {
     const m = mapRef.current;
@@ -885,8 +885,8 @@ export default function MapLibreMap() {
       startOrbit(center);
     }
     // inside startMission, after setMissionActive(true)
-     // const socket = new WebSocket(`ws://${window.location.hostname}:8001/ws`);
-      const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+    //const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+    const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
     setWs(socket);
 
     socket.onopen = () => {
@@ -1379,6 +1379,17 @@ export default function MapLibreMap() {
       // Expose the map instance for debugging
     }
   }, [videoExpanded]);
+  useEffect(() => {
+    mapRef.current?.resize();
+  }, [videoExpanded]);
+  useEffect(() => {
+    if (!mapEl.current) return;
+    const observer = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    observer.observe(mapEl.current);
+    return () => observer.disconnect();
+  }, []);
 
   // --- ✅ NEW: window focus/blur detection ---
   useEffect(() => {
@@ -1389,7 +1400,7 @@ export default function MapLibreMap() {
     const handleFocus = () => {
       if (lastAwayTime.current) {
         const now = Date.now();
-    
+
         // fetch recap for events you missed
         // existing missed events logic
         const missed = events.filter((e) => e.ts > lastAwayTime.current!);
@@ -1397,11 +1408,10 @@ export default function MapLibreMap() {
           setMissedEvents(missed);
           setShowQuickBrief(true);
         }
-    
+
         lastAwayTime.current = null;
       }
     };
-    
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
@@ -1553,7 +1563,6 @@ export default function MapLibreMap() {
 
   return (
     <>
-     
       <div style={{ display: 'flex', height: 'calc(100vh - 65px)', width: '100vw' }}>
         {/* --- Event Feed Sidebar --- */}
 
@@ -1589,7 +1598,7 @@ export default function MapLibreMap() {
             top: '50%',
             left: showFeed ? 340 : 0, // move out when sidebar is open
             transform: 'translateY(-50%)',
-            zIndex: 101,
+            zIndex: videoExpanded ? 101 : 107,
             background: showFeed ? '#0ea5e9' : '#111827',
             color: '#fff',
             border: 'none',
@@ -1625,7 +1634,7 @@ export default function MapLibreMap() {
               transition: 'all 0.3s ease',
               borderRadius: videoExpanded ? 8 : 0,
               overflow: 'hidden',
-              zIndex: videoExpanded ? 3002 : 100 ,
+              zIndex: videoExpanded ? 105 : 106,
             }}
           />
 
@@ -1803,9 +1812,7 @@ export default function MapLibreMap() {
             />
             {/* Debug overlay for backend detections */}
           </div>
-          
         )}
-
       </div>
     </>
   );
