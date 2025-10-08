@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react';
-import { FiMaximize2, FiX } from "react-icons/fi";
-
+import { FiMaximize2, FiX } from 'react-icons/fi';
 
 export type VideoReviewHandle = {
   captureFrame: () => string | null;
@@ -9,6 +8,7 @@ export type VideoReviewHandle = {
   videoEl: HTMLVideoElement | null;
   seekAndPause: (sec: number) => void;
   highlightBox: (id: string | null) => void; // ✅ new
+  seekAndPlay: (sec: number) => void; // ✅ new
 };
 
 type DetectionEvent = {
@@ -26,10 +26,11 @@ type Props = {
   onToggle: () => void;
   style?: React.CSSProperties;
   events?: DetectionEvent[];
+  showControls?: boolean; // ✅ NEW
 };
 
 const VideoReview = forwardRef<VideoReviewHandle, Props>(
-  ({ src, expanded, onToggle, style, events = [] }, ref) => {
+  ({ src, expanded, onToggle, style, events = [], showControls }, ref) => {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -58,6 +59,17 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
       seekTo: (sec) => {
         if (videoRef.current) videoRef.current.currentTime = Math.max(0, sec);
       },
+      seekAndPlay: (sec: number) => {
+        const v = videoRef.current;
+        if (!v) return;
+        const doSeek = () => {
+          v.currentTime = Math.max(0, sec);
+          v.play();
+        };
+        if (v.readyState >= 1) doSeek();
+        else v.addEventListener('loadedmetadata', doSeek, { once: true });
+      },
+
       seekAndPause: (sec) => {
         const v = videoRef.current;
         if (!v) return;
@@ -199,18 +211,19 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
             border: 'none',
             borderRadius: 6,
             padding: 6,
-            color: 'white',        
+            color: 'white',
             cursor: 'pointer',
             zIndex: 3100,
           }}
         >
-           {expanded ? <FiX size={18} /> : <FiMaximize2 size={18} />}
+          {expanded ? <FiX size={18} /> : <FiMaximize2 size={18} />}
         </button>
 
         <video
           ref={videoRef}
           src={src}
           muted
+          controls={showControls} // ✅ Only show when true
           autoPlay
           loop
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}

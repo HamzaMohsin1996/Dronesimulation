@@ -8,6 +8,8 @@ import PersonIcon from '../../assets/images/personMarker.svg';
 import DronePortIcon from '../../assets/images/icons/dronePort.svg';
 import DroneIcon from '../../assets/images/icons/twister.png';
 import type { DetectionEvent } from '../../shared/DetectionEvent';
+import VideoReview, { VideoReviewHandle } from '../VideoReview';
+import DroneEnrouteVideo from '../../assets/images/dronenroute.mp4';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
 
@@ -40,6 +42,11 @@ export default function ReengagementMap() {
   const [scanMode, setScanMode] = useState<ScanMode>('CLICK');
   const [streetDraft, setStreetDraft] = useState<Coord[]>([]);
   const [notificationEvents, setNotificationEvents] = useState<DetectionEvent[]>([]);
+  // --- at the top of ReengagementMap
+  const [viewerActive, setViewerActive] = useState(false);
+  const [viewerSrc, setViewerSrc] = useState<string | null>(null);
+  const [videoExpanded, setVideoExpanded] = useState(true);
+  const videoRef = useRef<VideoReviewHandle>(null);
   const [missionGeom, setMissionGeom] = useState<{
     center: Coord;
     shape?: Feature<Polygon>;
@@ -92,7 +99,6 @@ export default function ReengagementMap() {
       handlePersonDropped([pos.lng, pos.lat]);
     });
   }
-
   function handlePersonDropped(coord: Coord) {
     const m = mapRef.current;
     if (!m) return;
@@ -100,21 +106,19 @@ export default function ReengagementMap() {
     const point = turf.point(coord);
     const match = scannedRef.current.features.find((f) => turf.booleanPointInPolygon(point, f));
 
-    const popup = new mapboxgl.Popup().setLngLat(coord);
-
     if (match) {
-      const { scannedAt } = match.properties as any;
-      popup
-        .setHTML(
-          `<div style="text-align:center;">
-           <strong>📸 Scanned Area</strong><br/>
-           Time: ${new Date(scannedAt).toLocaleTimeString()}<br/>
-           <img src="https://placekitten.com/280/180" width="220" style="margin-top:8px;border-radius:8px;" />
-         </div>`
-        )
-        .addTo(m);
+      const { videoUrl, startTimeSec } = match.properties as any;
+
+      // ✅ open the correct video
+      setViewerSrc(videoUrl || DroneEnrouteVideo);
+      setViewerActive(true);
+
+      // ⏱ jump to the right time after mount
+      setTimeout(() => {
+        videoRef.current?.seekAndPause(startTimeSec ?? 0);
+      }, 500);
     } else {
-      popup.setHTML('<b>No scan data for this area</b>').addTo(m);
+      new mapboxgl.Popup().setLngLat(coord).setHTML('<b>No scan data for this area</b>').addTo(m);
     }
   }
 
@@ -204,6 +208,7 @@ export default function ReengagementMap() {
     addSource('scanned');
     addSource('fire-center');
     addSource('fire-history');
+    addSource('droneTrail');
 
     // mission layers
     if (!m.getLayer('mission-fill'))
@@ -220,6 +225,16 @@ export default function ReengagementMap() {
         type: 'line',
         source: 'missionGeom',
         paint: { 'line-color': '#0ea5e9', 'line-width': 2 },
+      });
+    if (!m.getLayer('drone-trail-line'))
+      m.addLayer({
+        id: 'drone-trail-line',
+        type: 'line',
+        source: 'droneTrail',
+        paint: {
+          'line-color': '#22d3ee', // cyan color
+          'line-width': 3,
+        },
       });
 
     // travel path & orbit
@@ -246,21 +261,21 @@ export default function ReengagementMap() {
       });
 
     // live sensor FOV
-    if (!m.getLayer('sensor-fov'))
-      m.addLayer({
-        id: 'sensor-fov',
-        type: 'fill',
-        source: 'sensorFov',
-        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.3, 'fill-outline-color': '#16a34a' },
-      });
-
-    // scanned history
     if (!m.getLayer('scanned-fill'))
       m.addLayer({
         id: 'scanned-fill',
         type: 'fill',
         source: 'scanned',
-        paint: { 'fill-color': '#ff6b00', 'fill-opacity': 0.1, 'fill-outline-color': '#ff6b00' },
+        paint: { 'fill-color': '#ff6b00', 'fill-opacity': 0.3 },
+      });
+
+    // live sensor FOV - draw above
+    if (!m.getLayer('sensor-fov'))
+      m.addLayer({
+        id: 'sensor-fov',
+        type: 'fill',
+        source: 'sensorFov',
+        paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.35 },
       });
 
     // current fire icon & glow
@@ -304,12 +319,17 @@ export default function ReengagementMap() {
   const redrawLayers = () => {
     const m = mapRef.current;
     if (!m) return;
+
     if (missionGeom) updateMissionSource(missionGeom.shape, missionGeom.line);
+
+    // ✅ reapply scanned polygons
     (m.getSource('scanned') as GeoJSONSource | undefined)?.setData(scannedRef.current);
+
     (m.getSource('fire-center') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
       features: fireRef.current ? [turf.point(fireRef.current)] : [],
     });
+
     (m.getSource('fire-history') as GeoJSONSource | undefined)?.setData(fireHistoryRef.current);
   };
 
@@ -482,36 +502,45 @@ export default function ReengagementMap() {
   const startOrbit = (center: Coord) => {
     const ring = turf.circle(center, ORBIT_RADIUS_M, { units: 'meters', steps: 180 }).geometry
       .coordinates[0] as Coord[];
+
     let i = 0;
     const m = mapRef.current!;
+    const trailCoords: Coord[] = [];
+
     const loop = () => {
       if (!missionActiveRef.current) return;
+
       const cur = ring[i];
+      trailCoords.push(cur);
+      if (trailCoords.length > 200) trailCoords.shift(); // optional short tail
+
+      // ✅ Only draw if we have at least 2 points
+      if (trailCoords.length >= 2) {
+        const pathLine = turf.lineString(trailCoords);
+        (m.getSource('droneTrail') as GeoJSONSource)?.setData(pathLine);
+      }
+
       const heading = turf.bearing(cur, gimbalTarget || center);
       const fov = makeFovRect(cur, heading);
+
+      // ✅ Attach metadata for later playback
+      fov.properties = {
+        scannedAt: Date.now(),
+        opacity: 0.2 + Math.random() * 0.2,
+        videoUrl: DroneEnrouteVideo,
+        startTimeSec: videoRef.current?.getCurrentTime?.() ?? 0, // capture timestamp
+      };
+
       (m.getSource('sensorFov') as GeoJSONSource)?.setData(fov);
       scannedRef.current.features.push(fov);
       (m.getSource('scanned') as GeoJSONSource)?.setData(scannedRef.current);
 
-      // --- Simulated fire detection for demo ---
-      if (Math.random() < 0.01) {
-        fireRef.current = cur;
-        const feature = turf.point(cur, { detectedAt: Date.now() });
-        fireHistoryRef.current.features.push(feature);
-
-        (m.getSource('fire-center') as GeoJSONSource)?.setData({
-          type: 'FeatureCollection',
-          features: [feature],
-        });
-        (m.getSource('fire-history') as GeoJSONSource)?.setData(fireHistoryRef.current);
-      }
-
       droneMarkerRef.current?.setLngLat(cur);
-      dronePopupRef.current?.setLngLat(cur).setHTML('Scanning…');
 
       i = (i + 1) % ring.length;
       animationFrame.current = requestAnimationFrame(loop);
     };
+
     if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     animationFrame.current = requestAnimationFrame(loop);
   };
@@ -644,6 +673,24 @@ export default function ReengagementMap() {
           >
             ⏹ End Mission
           </button>
+        )}
+        {viewerActive && (
+          <VideoReview
+            ref={videoRef}
+            src={DroneEnrouteVideo}
+            showControls
+            expanded={videoExpanded}
+            onToggle={() => {
+              if (videoExpanded) setViewerActive(false);
+              else setVideoExpanded(true);
+            }}
+            style={{
+              zIndex: 9999,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+            }}
+          />
         )}
 
         {arrivalToast && (
