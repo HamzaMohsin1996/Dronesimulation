@@ -3,10 +3,12 @@ import React, { useEffect, useRef, useState } from "react";
 import "./PegmanControl.css";
 
 type PegmanProps = {
-  onDropOnMap?: (lng: number, lat: number) => void;
-};
+    onDropOnMap?: (lng: number, lat: number) => void;
+    enabled?: boolean;
+  };
+  
 
-export default function PegmanControl({ onDropOnMap }: PegmanProps) {
+  export default function PegmanControl({ onDropOnMap, enabled = false }: PegmanProps) {
   const pegmanRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -61,33 +63,56 @@ export default function PegmanControl({ onDropOnMap }: PegmanProps) {
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, [onDropOnMap]);
-
+  // 🧭 Adjust tooltip if it's near screen edge
+useEffect(() => {
+    const tooltip = document.querySelector('.pegman-tooltip') as HTMLElement;
+    if (!tooltip) return;
+  
+    const handleMouseEnter = () => {
+      const rect = tooltip.getBoundingClientRect();
+  
+      // Shift inward if near right edge
+      if (rect.right > window.innerWidth) {
+        tooltip.style.left = 'auto';
+        tooltip.style.right = '0';
+        tooltip.style.transform = 'translateX(0)';
+      }
+  
+      // (Optional) handle left edge if needed
+      if (rect.left < 0) {
+        tooltip.style.left = '0';
+        tooltip.style.transform = 'translateX(0)';
+      }
+    };
+  
+    const container = document.getElementById('pegman-container');
+    container?.addEventListener('mouseenter', handleMouseEnter);
+  
+    return () => container?.removeEventListener('mouseenter', handleMouseEnter);
+  }, []);
+  
   return (
-    <div id="pegman-container" style={{ all: "unset" }}>
+    <div id="pegman-container" className={!enabled ? "disabled" : ""}>
       <div
         id="pegman"
         ref={pegmanRef}
         style={{
-            transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${dragging ? 1.1 : 1})`,
-            cursor: dragging ? "grabbing" : "grab",
-          }}
-          
+          transform: `translate(${offset.x}px, ${offset.y}px)`,
+          cursor: !enabled ? "not-allowed" : dragging ? "grabbing" : "grab",
+          opacity: enabled ? 1 : 0.5,
+          filter: enabled ? "none" : "grayscale(1)",
+          transition: "opacity 0.3s ease, filter 0.3s ease",
+        }}
       ></div>
   
-      {/* Preload images */}
-      <img
-        src="https://maps.gstatic.com/tactile/pegman_v3/santa/runway-2x.png"
-        height="0"
-        width="0"
-        alt=""
-      />
-      <img
-        src="https://maps.gstatic.com/tactile/pegman_v3/santa/dropping-2x.png"
-        height="0"
-        width="0"
-        alt=""
-      />
+      {!enabled && (
+        <div className="pegman-tooltip">
+          🔒 Pegman locked until scanning starts
+        </div>
+      )}
     </div>
   );
+  
+  
    
 }

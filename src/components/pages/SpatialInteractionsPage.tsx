@@ -73,6 +73,8 @@ export default function ReengagementMap() {
   const [etaSec, setEtaSec] = useState<number | null>(null);
   const [distKmLeft, setDistKmLeft] = useState<number | null>(null);
   const [arrivalToast, setArrivalToast] = useState<string | null>(null);
+  const [pegmanEnabled, setPegmanEnabled] = useState(false);
+
 
   // scanned rectangles
   const scannedRef = useRef<FeatureCollection>({ type: 'FeatureCollection', features: [] });
@@ -544,8 +546,12 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
       if (t < 1) animationFrame.current = requestAnimationFrame(animate);
       else {
         showArrivalToast();
-        startOrbit(center);
-        showHint("You can now drag the orange person onto scanned areas to view what the drone saw.");
+        // when mission starts (drone launches)
+setPegmanEnabled(false);
+
+// when drone reaches target and starts orbit (scanning)
+startOrbit(center);
+setPegmanEnabled(true);
 
       }
     };
@@ -691,36 +697,8 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
           </button>
   
           {/* 🧍 Pegman control */}
-          <div
-  style={{
-    ...btnStyle(false),
-    width: 52,
-    height: 52,
-    padding: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    transition: "background 0.2s, transform 0.2s",
-    overflow: "visible", // ✅ allow Pegman to move freely
-  }}
-  title="Drag me onto a scanned area to view what the drone saw"
->
-  <div
-    style={{
-      position: "relative",
-      width: 28,
-      height: 40,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 10,
-    }}
-  >
-    <PegmanControl onDropOnMap={handlePegmanDrop} />
-  </div>
-</div>
-
+          {/* 🧍 Pegman control */}
+  <PegmanControl onDropOnMap={handlePegmanDrop} enabled={pegmanEnabled} />
 
         </div>
   
