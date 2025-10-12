@@ -38,6 +38,7 @@ const initialDronePorts: DronePort[] = [
   { coord: [11.502, 48.716], id: 'drone-port-2', status: 'idle' },
 ];
 
+
 // Mission modes (as you asked: STREET / POI / FOI; plus CLICK if you want a quick circle)
 type ScanMode = 'STREET' | 'POI' | 'FOI' | 'CLICK';
 
@@ -81,7 +82,8 @@ export default function MapLibreMap() {
 
   const [events, setEvents] = useState<DetectionEvent[]>([]);
   const [draftPoints, setDraftPoints] = useState<Coord[]>([]);
-  const missionActiveRef = useRef(false);
+  const missionActiveRef = useRef(missionActive);
+  useEffect(() => { missionActiveRef.current = missionActive; }, [missionActive]);
   const [showQuickBrief, setShowQuickBrief] = useState(false);
   // highlight last arrival
   const [newEventToast, setNewEventToast] = useState<DetectionEvent | null>(null);
@@ -108,6 +110,16 @@ export default function MapLibreMap() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]);
   const [recap, setRecap] = useState<any | null>(null);
+  const [timelineTs, setTimelineTs] = useState<number | null>(null); // current replay time
+  const [isLive, setIsLive] = useState(true);
+  const isLiveRef = useRef(isLive);
+  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  const animatingRef = useRef(true);
+ const orbitTimerRef = useRef<number | null>(null);
+ const isResumingRef = useRef(false); // 🆕 add this
+ const wasEnrouteRef = useRef(false);
+ const isReplayModeRef = useRef(false);
+
 
   // ✅ all unique labels we’ve actually received so far
   const detectedLabels = React.useMemo(() => {
@@ -122,8 +134,20 @@ export default function MapLibreMap() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [currentBoxes, setCurrentBoxes] = useState<DetectionEvent[]>([]);
 
+  type DronePathPoint = {
+    ts: number;               // timestamp (ms since epoch)
+    coord: [number, number];  // [lng, lat]
+  };
+  
+  const [dronePath, setDronePath] = useState<DronePathPoint[]>([]);
+  const inTransitRef = useRef(false);
+useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
+
+
   // const [streamStart] = useState(() => Date.now());
   const [streamStart, setStreamStart] = useState<number | null>(null);
+
+
 
   const toggleFilter = (label: DetectionEvent['label']) => {
     setActiveFilters((prev) => {
@@ -236,25 +260,32 @@ export default function MapLibreMap() {
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-
-    // clear old markers
+  
+    // 🧹 Remove existing markers
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
-
-    // filter events if needed
-    const filtered = allEvents.filter(
-      (ev) => activeFilters.size === 0 || activeFilters.has(ev.label)
-    );
-
+  
+    // 🧠 Determine which events should be visible
+    const filtered = allEvents.filter((ev) => {
+      const matchesLabel = activeFilters.size === 0 || activeFilters.has(ev.label);
+  
+      // if replaying history → only show events up to the current timelineTs
+      // if live mode → show everything
+      const inTime = isLive || timelineTs === null ? true : ev.ts <= timelineTs;
+  
+      return matchesLabel && inTime;
+    });
+  
+    // 🪄 Draw the visible events
     filtered.forEach((ev) => {
       const el = document.createElement('div');
       el.style.fontSize = '28px';
       el.style.cursor = 'pointer';
       el.innerText = iconMap[ev.label]?.icon ?? '❓';
-
+  
       // --- Hover preview popup ---
       let popup: mapboxgl.Popup | null = null;
-
+  
       el.addEventListener('mouseenter', () => {
         if (popup) return;
         popup = new mapboxgl.Popup({
@@ -265,35 +296,34 @@ export default function MapLibreMap() {
           .setLngLat(ev.coord)
           .setHTML(
             `
-        <strong>${ev.label.toUpperCase()}</strong><br/>
-        ${new Date(ev.ts).toLocaleTimeString()}<br/>
-        ${
-          ev.thumbnail
-            ? `<img src="${ev.thumbnail}" style="max-width:120px;border-radius:4px;margin-top:4px"/>`
-            : ''
-        }
-      `
+            <strong>${ev.label.toUpperCase()}</strong><br/>
+            ${new Date(ev.ts).toLocaleTimeString()}<br/>
+            ${
+              ev.thumbnail
+                ? `<img src="${ev.thumbnail}" style="max-width:120px;border-radius:4px;margin-top:4px"/>`
+                : ''
+            }
+          `
           )
           .addTo(m);
       });
-
+  
       el.addEventListener('mouseleave', () => {
         if (popup) {
           popup.remove();
           popup = null;
         }
       });
-
-      // --- Full preview modal on click ---
+  
+      // --- Click to open full modal ---
       el.addEventListener('click', () => {
         if (popup) {
           popup.remove();
           popup = null;
         }
-        // remove old modal if it exists
         const existing = document.getElementById('event-modal');
         if (existing) existing.remove();
-
+  
         const modal = document.createElement('div');
         modal.id = 'event-modal';
         modal.style.position = 'fixed';
@@ -310,8 +340,7 @@ export default function MapLibreMap() {
         modal.style.color = 'white';
         modal.style.padding = '20px';
         modal.style.overflow = 'auto';
-
-        // close button
+  
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '✕';
         closeBtn.style.position = 'absolute';
@@ -324,21 +353,20 @@ export default function MapLibreMap() {
         closeBtn.style.cursor = 'pointer';
         closeBtn.addEventListener('click', () => modal.remove());
         modal.appendChild(closeBtn);
-
-        // event details
+  
         const title = document.createElement('h2');
         title.textContent = ev.label.toUpperCase();
         modal.appendChild(title);
-
+  
         const time = document.createElement('p');
         time.textContent = new Date(ev.ts).toLocaleString();
         modal.appendChild(time);
-
+  
         const location = document.createElement('p');
         location.textContent =
           ev.address ?? `Lat: ${ev.coord[1].toFixed(5)}, Lng: ${ev.coord[0].toFixed(5)}`;
         modal.appendChild(location);
-
+  
         if (ev.thumbnail) {
           const img = document.createElement('img');
           img.src = ev.thumbnail;
@@ -348,15 +376,15 @@ export default function MapLibreMap() {
           img.style.marginTop = '12px';
           modal.appendChild(img);
         }
-
+  
         document.body.appendChild(modal);
       });
-
-      // add emoji marker to map
+  
       const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
       markersRef.current.push(marker);
     });
-  }, [allEvents, activeFilters]);
+  }, [allEvents, activeFilters, timelineTs, isLive]);
+  
 
   useEffect(() => {
     const m = mapRef.current;
@@ -656,13 +684,13 @@ export default function MapLibreMap() {
     // animate drone around the ring
     let idx = 0;
     const animate = () => {
-      if (!missionActiveRef.current) return;
+      if (!missionActiveRef.current || !isLiveRef.current) return;
       if (!droneMarkerRef.current) return;
-
+    
       droneMarkerRef.current.setLngLat(coords[idx]);
       idx = (idx + 1) % coords.length;
       requestAnimationFrame(animate);
-    };
+    };    
     animate();
 
     // draw the ring on the map for visual feedback
@@ -699,14 +727,14 @@ export default function MapLibreMap() {
 
     let idx = 0;
     const animate = () => {
-      if (!missionActiveRef.current) return;
+      if (!missionActiveRef.current || !isLiveRef.current) return;
       if (!droneMarkerRef.current) return;
-
-      droneMarkerRef.current.setLngLat(path[idx]);
-      idx = (idx + 1) % path.length;
-
+    
+      droneMarkerRef.current.setLngLat(coords[idx]);
+      idx = (idx + 1) % coords.length;
       requestAnimationFrame(animate);
     };
+    
     animate();
 
     const scanLine = turf.lineString(path);
@@ -715,7 +743,78 @@ export default function MapLibreMap() {
       features: [scanLine],
     });
   };
-
+  const handleDetectionMessage = (msg: MessageEvent) => {
+    const data = JSON.parse(msg.data);
+    const iconMap: Record<string, string> = {
+      fire: '🔥',
+      person: '👤',
+      chemical: '🧪',
+      snapshot: '📸',
+      car: '🚗',
+      truck: '🚚',
+      animal: '🐾',
+    };
+  
+    // 🧭 Skip if replay mode
+    if (!isLive) {
+      console.debug('Skipping detections during replay');
+      return;
+    }
+  
+    // 🧠 Ignore if drone path is empty — no position to sync yet
+    if (!dronePath || dronePath.length === 0) {
+      console.warn('⚠️ No dronePath yet — using detection coords directly');
+      // just use detections as-is
+      const fixed = data.events.map((e: DetectionEvent) => ({
+        ...e,
+        ts: e.ts && e.ts > 1e11 ? e.ts : Date.now(),
+        icon: iconMap[e.label] || '📸',
+      }));
+      setCurrentBoxes(fixed);
+      setAllEvents((prev) => [...prev, ...fixed]);
+      return;
+    }
+    
+  
+    if (data.events) {
+      const delayMs = 2000; // adjust if backend lag changes
+  
+      const synced = data.events.map((e: DetectionEvent) => {
+        const baseTs = e.ts && e.ts > 1e11 ? e.ts : Date.now();
+        const correctedTs = baseTs - delayMs;
+  
+        // ✅ Safe reduce with guard for empty path
+        const nearest =
+          dronePath.length > 0
+            ? dronePath.reduce((best, p) =>
+                Math.abs(p.ts - correctedTs) < Math.abs(best.ts - correctedTs)
+                  ? p
+                  : best
+              )
+            : null;
+  
+        const label =
+          e.label?.toLowerCase() === 'people' ? 'person' : e.label?.toLowerCase();
+  
+        return {
+          ...e,
+          ts: correctedTs,
+          label,
+          icon: iconMap[label] || '📸',
+          // ✅ Use nearest drone coordinate if found, else detection’s own coord
+          coord: nearest?.coord ?? e.coord,
+        };
+      });
+  
+      
+  
+      // ✅ Update map + global state
+      setCurrentBoxes(synced);
+      setAllEvents((prev) => [...prev, ...synced]);
+    }
+  };
+  
+  
   // ---------- Start Mission (only after mode + coordinates set) ----------
   const startMission = () => {
     if (!missionGeom || !scanMode) return;
@@ -725,6 +824,8 @@ export default function MapLibreMap() {
         return; // stop mission start
       }
     }
+    setDronePath(prev => [...prev]);  
+    //  setDronePath([]); // clear old flight data before new mission
 
     // Choose nearest port
     const center = missionGeom.center;
@@ -781,21 +882,31 @@ export default function MapLibreMap() {
     const totalDistM = totalDistKm * 1000;
     const transitMs = totalDistM > 0 ? (totalDistM / DRONE_SPEED_MPS) * 1000 : 1;
 
-    // Prime sources
-    (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(
-      toTarget.geometry.coordinates.length >= 2
-        ? toTarget
-        : ({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [] },
-            properties: {},
-          } as Feature<LineString>)
-    );
-    (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: [] },
-      properties: {},
-    } as Feature<LineString>);
+   // ✅ Prime sources only if this is a *new mission*, not a resume
+const remainingSrc = mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource;
+const coveredSrc = mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource;
+
+if (!isResumingRef.current) {
+  console.log('🟢 New mission — resetting path layers');
+  remainingSrc.setData(
+    toTarget.geometry.coordinates.length >= 2
+      ? toTarget
+      : ({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        } as Feature<LineString>)
+  );
+  coveredSrc.setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [] },
+    properties: {},
+  });
+} else {
+  console.log('🟢 Resuming mission — keeping existing path');
+  isResumingRef.current = false; // reset the flag for next time
+}
+
 
     // ETA
     // ETA
@@ -812,6 +923,7 @@ export default function MapLibreMap() {
       let startTs: number | null = null;
       const raf = (now: number) => {
         if (!droneMarkerRef.current) return;
+        animatingRef.current = false;
         if (startTs === null) startTs = now;
         const t = Math.min((now - startTs) / transitMs, 1);
         const distKm = totalDistKm * t;
@@ -819,7 +931,29 @@ export default function MapLibreMap() {
         // move drone along path
         const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
         const cur = pt.geometry.coordinates as Coord;
-        droneMarkerRef.current?.setLngLat(cur);
+     // ✅ Only move marker visually if not in replay mode
+if (!isReplayModeRef.current && droneMarkerRef.current) {
+  droneMarkerRef.current.setLngLat(cur);
+}
+
+        // ✅ Record position + timestamp for timeline replay
+setDronePath((prev) => {
+  const now = Date.now();
+  setDronePath(prev => {
+    const last = prev.at(-1);
+    if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
+      return [...prev, { ts: now, coord: cur }];
+    }
+    return prev;
+  });
+  const last = prev.at(-1);
+  // only store if moved more than 2 meters or if it's the first point
+  if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
+    return [...prev, { ts: now, coord: cur }];
+  }
+  return prev;
+});
+
         // console.log('Drone position:', cur, 'progress:', t);
 
         // ⭐ Update popup text/location each frame
@@ -894,7 +1028,7 @@ export default function MapLibreMap() {
 
       // Send frames every 500 ms while mission is active
       const sendLoop = setInterval(() => {
-        if (!missionActiveRef.current) {
+        if (!missionActiveRef.current || !animatingRef.current) {
           clearInterval(sendLoop);
           return;
         }
@@ -920,62 +1054,246 @@ export default function MapLibreMap() {
         clearInterval(sendLoop);
       };
 
-      socket.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
+      socket.onmessage = handleDetectionMessage;
 
-        const normalize = (l: string) =>
-          l.toLowerCase() === 'people' ? 'person' : l.toLowerCase();
-
-        const iconMap: Record<string, string> = {
-          fire: '🔥',
-          person: '👤',
-          chemical: '🧪',
-          snapshot: '📸',
-          car: '🚗', // add whatever else your backend might send
-          truck: '🚚',
-          animal: '🐾', // example extra
-        };
-
-        if (data.events) {
-          const fixed = data.events.map((e: DetectionEvent) => {
-            const label = normalize(e.label);
-            return {
-              ...e,
-              ts: e.ts && e.ts > 1e11 ? e.ts : Date.now(),
-              label,
-              icon: iconMap[label] || '📸', // fallback only if label missing
-            };
-          });
-
-          console.log(
-            'Adding events',
-            fixed.map((ev: DetectionEvent) => ({ label: ev.label, icon: ev.icon }))
-          );
-
-          setCurrentBoxes(fixed);
-          setAllEvents((prev) => [...prev, ...fixed]);
-        }
-      };
+      
+      
     };
   };
-
   const startOrbit = (center: Coord) => {
-    // Optional: small circular patrol to visualize "scan"
-    const m = mapRef.current!;
+    if (orbitTimerRef.current) {
+      clearTimeout(orbitTimerRef.current);
+      orbitTimerRef.current = null;
+    }
+  
     const orbit = turf.circle(center, ORBIT_RADIUS_M, {
       units: 'meters',
       steps: 120,
     }) as Feature<Polygon>;
+  
     const ring = orbit.geometry.coordinates[0];
     let i = 0;
+  
     const tick = () => {
-      if (!missionActive) return;
+      // 🛑 Stop orbit if mission ended or replay mode is active
+      if (!missionActiveRef.current || !animatingRef.current) return;
+      console.log('🌀 Orbit tick', i, 'isLive=', isLiveRef.current);
+
       i = (i + 1) % ring.length;
-      droneMarkerRef.current?.setLngLat(ring[i] as Coord);
-      setTimeout(tick, 80);
+      const cur = ring[i] as Coord;
+     // ✅ Only move marker visually if not in replay mode
+if (!isReplayModeRef.current && droneMarkerRef.current) {
+  droneMarkerRef.current.setLngLat(cur);
+}
+
+  
+      setDronePath((prev) => {
+        const now = Date.now();
+        const last = prev.at(-1);
+        if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
+          return [...prev, { ts: now, coord: cur }];
+        }
+        return prev;
+      });
+  
+      orbitTimerRef.current = window.setTimeout(tick, 80);
     };
+  
     tick();
   };
+  
+  
+  const stopOrbit = () => {
+    if (orbitTimerRef.current) {
+      clearTimeout(orbitTimerRef.current);
+      orbitTimerRef.current = null;
+    }
+  };
+  
+  const handleTimelineSeek = (ts: number) => {
+    if (dronePath.length < 2 || !mapRef.current) return;
+  
+    // 🧭 Enter replay mode (visual only)
+    setIsLive(false);
+    setTimelineTs(ts);
+    isReplayModeRef.current = true; // ✅ Mark replay active
+  
+    // 🛑 Stop drone icon visually, but DO NOT pause mission updates
+    if (inTransitRef.current === true) {
+      console.log('🎥 Replay during ENROUTE — pausing only drone icon (mission continues)');
+    } else {
+      console.log('🎥 Replay during SCAN — visual only');
+    }
+  
+    // Find nearest points before & after
+    const before = [...dronePath].reverse().find((p) => p.ts <= ts);
+    const after = dronePath.find((p) => p.ts >= ts);
+  
+    let interpolated: [number, number] | null = null;
+    if (before && after && after.ts !== before.ts) {
+      const ratio = (ts - before.ts) / (after.ts - before.ts);
+      interpolated = [
+        before.coord[0] + (after.coord[0] - before.coord[0]) * ratio,
+        before.coord[1] + (after.coord[1] - before.coord[1]) * ratio,
+      ];
+    } else if (before) interpolated = before.coord;
+    else if (after) interpolated = after.coord;
+  
+    // Freeze the drone icon at interpolated position
+    if (interpolated && droneMarkerRef.current) {
+      droneMarkerRef.current.setLngLat(interpolated);
+    }
+  
+    // Optional: draw replay overlay
+    const m = mapRef.current;
+    const replaySrc = m.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
+    if (replaySrc) {
+      const coordsUntilNow = dronePath.filter((p) => p.ts <= ts).map((p) => p.coord);
+      if (interpolated) coordsUntilNow.push(interpolated);
+      replaySrc.setData(
+        coordsUntilNow.length >= 2
+          ? turf.lineString(coordsUntilNow)
+          : {
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: [] },
+              properties: {},
+            }
+      );
+    }
+  
+    // Update visible detections only (this is safe)
+    const delayMs = 2000;
+    const visibleEvents = allEvents.filter((e) => e.ts - delayMs <= ts);
+    updateEventMarkers(visibleEvents);
+  };
+
+  const resumeEnrouteFlight = () => {
+    if (!missionGeom || !originPortRef.current) return;
+    const origin = originPortRef.current;
+    const center = missionGeom.center;
+    const toTarget = turf.lineString([origin.coord, center]) as Feature<LineString>;
+  
+    console.log('✈️ Resuming enroute to target center', center);
+  
+    const last = dronePath.at(-1)!;
+    const fullDistKm = turf.length(toTarget, { units: 'kilometers' });
+    const coveredDistKm = turf.distance(origin.coord, last.coord, { units: 'kilometers' });
+    const remainingDistKm = Math.max(0, fullDistKm - coveredDistKm);
+    const remainingMs = (remainingDistKm * 1000) / DRONE_SPEED_MPS * 1000;
+  
+    let startTs: number | null = null;
+  
+    const raf = (now: number) => {
+      if (!droneMarkerRef.current) return;
+      if (!animatingRef.current) return; // paused while replaying
+      if (startTs === null) startTs = now;
+  
+      const t = Math.min((now - startTs) / remainingMs, 1);
+      const pt = turf.along(toTarget, coveredDistKm + remainingDistKm * t, { units: 'kilometers' }) as Feature<Point>;
+      const cur = pt.geometry.coordinates as Coord;
+  
+      droneMarkerRef.current.setLngLat(cur);
+  
+      setDronePath(prev => {
+        const n = Date.now();
+        const last = prev.at(-1);
+        if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
+          return [...prev, { ts: n, coord: cur }];
+        }
+        return prev;
+      });
+  
+      if (t < 1) {
+        requestAnimationFrame(raf);
+      } else {
+        console.log('✅ Reached target center — starting orbit');
+        setInTransit(false);
+        inTransitRef.current = false;
+        startOrbit(center);
+      }
+    };
+  
+    requestAnimationFrame(raf);
+  };
+  
+  const goLive = () => {
+    console.log('🔴 Returning to LIVE mode...');
+    setIsLive(true);
+    setTimelineTs(null);
+    isReplayModeRef.current = false; // ✅ Exit replay mode
+  
+    animatingRef.current = true;
+    setMissionActive(true);
+    isResumingRef.current = true;
+  
+    const m = mapRef.current;
+    const replaySrc = m?.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
+    if (replaySrc) {
+      replaySrc.setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [] },
+        properties: {},
+      } as GeoJSON.Feature<GeoJSON.LineString>);
+    }
+  
+    if (dronePath.length > 0 && droneMarkerRef.current) {
+      const latest = dronePath.at(-1)!;
+      droneMarkerRef.current.setLngLat(latest.coord);
+    }
+  
+    updateEventMarkers(allEvents);
+  
+    if (missionActive && dronePath.length > 0) {
+      if (inTransitRef.current) {
+        console.log('🚀 Resuming ENROUTE flight toward target center');
+        resumeEnrouteFlight();
+      } else if (!orbitTimerRef.current) {
+        const latest = dronePath.at(-1)!;
+        console.log('🌀 Ensuring orbit is running');
+        startOrbit(latest.coord);
+      }
+    }
+  
+    // Reconnect WS if needed
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+      setWs(socket);
+      socket.onopen = () => console.log('✅ WebSocket reconnected');
+      socket.onmessage = handleDetectionMessage;
+      socket.onclose = () => console.warn('WebSocket closed');
+    } else {
+      console.log('🟢 WebSocket already live');
+    }
+  
+    console.log('✅ Drone + events restored to LIVE mode (mission continued seamlessly)');
+  };
+  
+  
+  
+  
+  
+  
+  // 🧭 Helper to refresh visible event markers
+  const updateEventMarkers = (events: DetectionEvent[]) => {
+    const m = mapRef.current;
+    if (!m) return;
+  
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current = [];
+  
+    events.forEach((ev) => {
+      const el = document.createElement('div');
+      el.style.fontSize = '28px';
+      el.style.cursor = 'pointer';
+      el.innerText = iconMap[ev.label]?.icon ?? '❓';
+  
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+      markersRef.current.push(marker);
+    });
+  };
+  
+
+  
 
   const nearestPort = (pt: Coord): DronePort => {
     return initialDronePorts.reduce((best, p) => {
@@ -1738,7 +2056,7 @@ export default function MapLibreMap() {
             </button>
           )}
 
-          {missionActive && (
+          {(missionActive || dronePath.length > 0) && (
             <button
               onClick={resetMission}
               style={{
@@ -1792,27 +2110,28 @@ export default function MapLibreMap() {
             /* flyTo etc. */
           }}
         />
-        {missionActive && (
-          <div>
-            <VideoReview
-              ref={videoRef}
-              // src={inTransit ? DroneEnrouteVideo : FirefighterVideo}
-              src={DroneEnrouteVideo}
-              expanded={videoExpanded}
-              onToggle={toggleVideo}
-              events={currentBoxes}
-            />
-            <EventTimeline
-              videoHandleRef={videoRef}
-              events={allEvents}
-              startTs={streamStart ?? Date.now()}
-              filters={activeFilters}
-              onFilterChange={setActiveFilters}
-              availableLabels={[...detectedLabels]}
-            />
-            {/* Debug overlay for backend detections */}
-          </div>
-        )}
+       {(missionActive || dronePath.length > 0) && (
+  <div>
+    <VideoReview
+      ref={videoRef}
+      src={DroneEnrouteVideo}
+      expanded={videoExpanded}
+      onToggle={toggleVideo}
+      events={currentBoxes}
+    />
+    <EventTimeline
+      videoHandleRef={videoRef}
+      events={allEvents}
+      startTs={streamStart ?? Date.now()}
+      filters={activeFilters}
+      onFilterChange={setActiveFilters}
+      availableLabels={[...detectedLabels]}
+      onSeek={handleTimelineSeek}
+      onGoLive={goLive}
+    />
+  </div>
+)}
+
       </div>
     </>
   );
