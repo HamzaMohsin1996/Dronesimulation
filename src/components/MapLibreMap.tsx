@@ -23,6 +23,7 @@ import { categoryIcons } from './mapicons'; // "events" shows the normal points,
 import EventFeed from './EventFeed';
 import { iconMap } from '../shared/iconMap';
 import RecapPanel from './RecapPanel';
+import { useReengagement } from './useReengagement';
 
 // ---------------- Config ----------------
 type Coord = [number, number];
@@ -37,7 +38,6 @@ const initialDronePorts: DronePort[] = [
   { coord: [11.505, 48.719], id: 'drone-port-1', status: 'idle' },
   { coord: [11.502, 48.716], id: 'drone-port-2', status: 'idle' },
 ];
-
 
 // Mission modes (as you asked: STREET / POI / FOI; plus CLICK if you want a quick circle)
 type ScanMode = 'STREET' | 'POI' | 'FOI' | 'CLICK';
@@ -81,45 +81,42 @@ export default function MapLibreMap() {
   const [etaText, setEtaText] = useState<string | null>(null);
 
   const [events, setEvents] = useState<DetectionEvent[]>([]);
+  const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]); // 👈 Declare it first!
+
+  // 👇 Hook to detect when user leaves or becomes idle
+  const { showReturnModal, setShowReturnModal, missedEvents, awayReason } =
+    useReengagement(allEvents);
+
   const [draftPoints, setDraftPoints] = useState<Coord[]>([]);
   const missionActiveRef = useRef(missionActive);
-  useEffect(() => { missionActiveRef.current = missionActive; }, [missionActive]);
+  useEffect(() => {
+    missionActiveRef.current = missionActive;
+  }, [missionActive]);
   const [showQuickBrief, setShowQuickBrief] = useState(false);
   // highlight last arrival
   const [newEventToast, setNewEventToast] = useState<DetectionEvent | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   // new state
-  const [missedEvents, setMissedEvents] = useState<DetectionEvent[]>([]);
-  const hiddenSince = useRef<number | null>(null);
-  const lastAwayTime = useRef<number | null>(null);
 
-  const [isIdle, setIsIdle] = useState(false);
-  const idleStart = useRef<number | null>(null);
-  const lastActivity = useRef(Date.now());
-  const IDLE_TIMEOUT = 5_000; // e.g. 1 minute
-  // reason the operator was considered "away"
-  type AwayReason = 'tab-switch' | 'out-of-focus' | 'idle' | null;
-  const [awayReason, setAwayReason] = useState<AwayReason>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   // highlight currently selected event
-  const [showReturnModal, setShowReturnModal] = useState(false);
   // new: events that were missed but not yet opened from the header dropdown
   const [notificationEvents, setNotificationEvents] = useState<DetectionEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
-  const [allEvents, setAllEvents] = useState<DetectionEvent[]>([]);
   const [recap, setRecap] = useState<any | null>(null);
   const [timelineTs, setTimelineTs] = useState<number | null>(null); // current replay time
   const [isLive, setIsLive] = useState(true);
   const isLiveRef = useRef(isLive);
-  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  useEffect(() => {
+    isLiveRef.current = isLive;
+  }, [isLive]);
   const animatingRef = useRef(true);
- const orbitTimerRef = useRef<number | null>(null);
- const isResumingRef = useRef(false); // 🆕 add this
- const wasEnrouteRef = useRef(false);
- const isReplayModeRef = useRef(false);
-
+  const orbitTimerRef = useRef<number | null>(null);
+  const isResumingRef = useRef(false); // 🆕 add this
+  const wasEnrouteRef = useRef(false);
+  const isReplayModeRef = useRef(false);
 
   // ✅ all unique labels we’ve actually received so far
   const detectedLabels = React.useMemo(() => {
@@ -133,21 +130,24 @@ export default function MapLibreMap() {
   const toggleVideo = () => setVideoExpanded((v) => !v);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [currentBoxes, setCurrentBoxes] = useState<DetectionEvent[]>([]);
+  const [missionPhase, setMissionPhase] = useState<
+    'idle' | 'in-transit' | 'scanning' | 'returning'
+  >('idle');
+  const [progressPct, setProgressPct] = useState<number | null>(null);
 
   type DronePathPoint = {
-    ts: number;               // timestamp (ms since epoch)
-    coord: [number, number];  // [lng, lat]
+    ts: number; // timestamp (ms since epoch)
+    coord: [number, number]; // [lng, lat]
   };
-  
+
   const [dronePath, setDronePath] = useState<DronePathPoint[]>([]);
   const inTransitRef = useRef(false);
-useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
-
+  useEffect(() => {
+    inTransitRef.current = inTransit;
+  }, [inTransit]);
 
   // const [streamStart] = useState(() => Date.now());
   const [streamStart, setStreamStart] = useState<number | null>(null);
-
-
 
   const toggleFilter = (label: DetectionEvent['label']) => {
     setActiveFilters((prev) => {
@@ -260,32 +260,32 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-  
+
     // 🧹 Remove existing markers
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
-  
+
     // 🧠 Determine which events should be visible
     const filtered = allEvents.filter((ev) => {
       const matchesLabel = activeFilters.size === 0 || activeFilters.has(ev.label);
-  
+
       // if replaying history → only show events up to the current timelineTs
       // if live mode → show everything
       const inTime = isLive || timelineTs === null ? true : ev.ts <= timelineTs;
-  
+
       return matchesLabel && inTime;
     });
-  
+
     // 🪄 Draw the visible events
     filtered.forEach((ev) => {
       const el = document.createElement('div');
       el.style.fontSize = '28px';
       el.style.cursor = 'pointer';
       el.innerText = iconMap[ev.label]?.icon ?? '❓';
-  
+
       // --- Hover preview popup ---
       let popup: mapboxgl.Popup | null = null;
-  
+
       el.addEventListener('mouseenter', () => {
         if (popup) return;
         popup = new mapboxgl.Popup({
@@ -307,14 +307,14 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
           )
           .addTo(m);
       });
-  
+
       el.addEventListener('mouseleave', () => {
         if (popup) {
           popup.remove();
           popup = null;
         }
       });
-  
+
       // --- Click to open full modal ---
       el.addEventListener('click', () => {
         if (popup) {
@@ -323,7 +323,7 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
         }
         const existing = document.getElementById('event-modal');
         if (existing) existing.remove();
-  
+
         const modal = document.createElement('div');
         modal.id = 'event-modal';
         modal.style.position = 'fixed';
@@ -340,7 +340,7 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
         modal.style.color = 'white';
         modal.style.padding = '20px';
         modal.style.overflow = 'auto';
-  
+
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '✕';
         closeBtn.style.position = 'absolute';
@@ -353,20 +353,20 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
         closeBtn.style.cursor = 'pointer';
         closeBtn.addEventListener('click', () => modal.remove());
         modal.appendChild(closeBtn);
-  
+
         const title = document.createElement('h2');
         title.textContent = ev.label.toUpperCase();
         modal.appendChild(title);
-  
+
         const time = document.createElement('p');
         time.textContent = new Date(ev.ts).toLocaleString();
         modal.appendChild(time);
-  
+
         const location = document.createElement('p');
         location.textContent =
           ev.address ?? `Lat: ${ev.coord[1].toFixed(5)}, Lng: ${ev.coord[0].toFixed(5)}`;
         modal.appendChild(location);
-  
+
         if (ev.thumbnail) {
           const img = document.createElement('img');
           img.src = ev.thumbnail;
@@ -376,15 +376,14 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
           img.style.marginTop = '12px';
           modal.appendChild(img);
         }
-  
+
         document.body.appendChild(modal);
       });
-  
+
       const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
       markersRef.current.push(marker);
     });
   }, [allEvents, activeFilters, timelineTs, isLive]);
-  
 
   useEffect(() => {
     const m = mapRef.current;
@@ -625,26 +624,6 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
     src.setData(fc);
   }, [allEvents, activeFilters]);
 
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenSince.current = Date.now();
-      } else {
-        const since = hiddenSince.current;
-        if (!since) return;
-        // use the ref so we always have the newest list
-        const missed = eventsRef.current.filter((e) => e.ts > since);
-        if (missed.length) {
-          setMissedEvents(missed);
-          setShowReturnModal(true);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, []); // 👈 run once
-
   const setMissionTargetOnMap = (opts: {
     polygon?: Feature<Polygon | MultiPolygon>;
     line?: Feature<LineString>;
@@ -686,11 +665,11 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
     const animate = () => {
       if (!missionActiveRef.current || !isLiveRef.current) return;
       if (!droneMarkerRef.current) return;
-    
+
       droneMarkerRef.current.setLngLat(coords[idx]);
       idx = (idx + 1) % coords.length;
       requestAnimationFrame(animate);
-    };    
+    };
     animate();
 
     // draw the ring on the map for visual feedback
@@ -722,6 +701,7 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
         const pt = turf.along(seg, (length * j) / pointsPerSegment, { units: 'kilometers' });
         path.push(pt.geometry.coordinates as Coord);
       }
+
       if (i % 2 === 1) path.reverse(); // zigzag effect
     }
 
@@ -729,12 +709,13 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
     const animate = () => {
       if (!missionActiveRef.current || !isLiveRef.current) return;
       if (!droneMarkerRef.current) return;
-    
-      droneMarkerRef.current.setLngLat(coords[idx]);
-      idx = (idx + 1) % coords.length;
+
+      // ✅ use path instead of coords
+      droneMarkerRef.current.setLngLat(path[idx]);
+      idx = (idx + 1) % path.length;
       requestAnimationFrame(animate);
     };
-    
+
     animate();
 
     const scanLine = turf.lineString(path);
@@ -743,6 +724,7 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
       features: [scanLine],
     });
   };
+
   const handleDetectionMessage = (msg: MessageEvent) => {
     const data = JSON.parse(msg.data);
     const iconMap: Record<string, string> = {
@@ -754,13 +736,13 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
       truck: '🚚',
       animal: '🐾',
     };
-  
+
     // 🧭 Skip if replay mode
     if (!isLive) {
       console.debug('Skipping detections during replay');
       return;
     }
-  
+
     // 🧠 Ignore if drone path is empty — no position to sync yet
     if (!dronePath || dronePath.length === 0) {
       console.warn('⚠️ No dronePath yet — using detection coords directly');
@@ -774,28 +756,24 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
       setAllEvents((prev) => [...prev, ...fixed]);
       return;
     }
-    
-  
+
     if (data.events) {
       const delayMs = 2000; // adjust if backend lag changes
-  
+
       const synced = data.events.map((e: DetectionEvent) => {
         const baseTs = e.ts && e.ts > 1e11 ? e.ts : Date.now();
         const correctedTs = baseTs - delayMs;
-  
+
         // ✅ Safe reduce with guard for empty path
         const nearest =
           dronePath.length > 0
             ? dronePath.reduce((best, p) =>
-                Math.abs(p.ts - correctedTs) < Math.abs(best.ts - correctedTs)
-                  ? p
-                  : best
+                Math.abs(p.ts - correctedTs) < Math.abs(best.ts - correctedTs) ? p : best
               )
             : null;
-  
-        const label =
-          e.label?.toLowerCase() === 'people' ? 'person' : e.label?.toLowerCase();
-  
+
+        const label = e.label?.toLowerCase() === 'people' ? 'person' : e.label?.toLowerCase();
+
         return {
           ...e,
           ts: correctedTs,
@@ -805,16 +783,13 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
           coord: nearest?.coord ?? e.coord,
         };
       });
-  
-      
-  
+
       // ✅ Update map + global state
       setCurrentBoxes(synced);
       setAllEvents((prev) => [...prev, ...synced]);
     }
   };
-  
-  
+
   // ---------- Start Mission (only after mode + coordinates set) ----------
   const startMission = () => {
     if (!missionGeom || !scanMode) return;
@@ -824,13 +799,14 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
         return; // stop mission start
       }
     }
-    setDronePath(prev => [...prev]);  
+    setDronePath((prev) => [...prev]);
     //  setDronePath([]); // clear old flight data before new mission
 
     // Choose nearest port
     const center = missionGeom.center;
     const origin = nearestPort(center);
     originPortRef.current = origin;
+    setMissionPhase('in-transit');
 
     // Drone marker
     const el = document.createElement('div');
@@ -862,12 +838,12 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
       toTarget = turf.lineString([origin.coord, center]) as Feature<LineString>;
     }
 
-    // ⭐ NEW popup to show live progress
-    const progressPopup = new mapboxgl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      className: 'drone-progress-popup',
-    }).addTo(mapRef.current!);
+    // // ⭐ NEW popup to show live progress
+    // const progressPopup = new mapboxgl.Popup({
+    //   closeButton: false,
+    //   closeOnClick: false,
+    //   className: 'drone-progress-popup',
+    // }).addTo(mapRef.current!);
 
     // --- distance & time setup (unchanged) ---
     let totalDistKm = 0;
@@ -882,31 +858,30 @@ useEffect(() => { inTransitRef.current = inTransit; }, [inTransit]);
     const totalDistM = totalDistKm * 1000;
     const transitMs = totalDistM > 0 ? (totalDistM / DRONE_SPEED_MPS) * 1000 : 1;
 
-   // ✅ Prime sources only if this is a *new mission*, not a resume
-const remainingSrc = mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource;
-const coveredSrc = mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource;
+    // ✅ Prime sources only if this is a *new mission*, not a resume
+    const remainingSrc = mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource;
+    const coveredSrc = mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource;
 
-if (!isResumingRef.current) {
-  console.log('🟢 New mission — resetting path layers');
-  remainingSrc.setData(
-    toTarget.geometry.coordinates.length >= 2
-      ? toTarget
-      : ({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: [] },
-          properties: {},
-        } as Feature<LineString>)
-  );
-  coveredSrc.setData({
-    type: 'Feature',
-    geometry: { type: 'LineString', coordinates: [] },
-    properties: {},
-  });
-} else {
-  console.log('🟢 Resuming mission — keeping existing path');
-  isResumingRef.current = false; // reset the flag for next time
-}
-
+    if (!isResumingRef.current) {
+      console.log('🟢 New mission — resetting path layers');
+      remainingSrc.setData(
+        toTarget.geometry.coordinates.length >= 2
+          ? toTarget
+          : ({
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: [] },
+              properties: {},
+            } as Feature<LineString>)
+      );
+      coveredSrc.setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [] },
+        properties: {},
+      });
+    } else {
+      console.log('🟢 Resuming mission — keeping existing path');
+      isResumingRef.current = false; // reset the flag for next time
+    }
 
     // ETA
     // ETA
@@ -923,98 +898,56 @@ if (!isResumingRef.current) {
       let startTs: number | null = null;
       const raf = (now: number) => {
         if (!droneMarkerRef.current) return;
-      
-        // ✅ Do not disable animation here
-        if (isReplayModeRef.current) return; // only skip visuals in replay mode
-        animatingRef.current = true;
-      
+        if (!missionActiveRef.current) return;
+        if (!isLiveRef.current) return;
+
         if (startTs === null) startTs = now;
+
         const t = Math.min((now - startTs) / transitMs, 1);
         const distKm = totalDistKm * t;
-      
-        // Move drone only when not replaying
+
         const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
         const cur = pt.geometry.coordinates as Coord;
-        if (!isReplayModeRef.current) {
-          droneMarkerRef.current.setLngLat(cur);
-        }
+        droneMarkerRef.current.setLngLat(cur);
+        setDronePath((prev) => {
+          const now = Date.now();
+          const last = prev.at(-1);
+          if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
+            return [...prev, { ts: now, coord: cur }];
+          }
+          return prev;
+        });
 
-        // ✅ Record position + timestamp for timeline replay
-setDronePath((prev) => {
-  const now = Date.now();
-  setDronePath(prev => {
-    const last = prev.at(-1);
-    if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
-      return [...prev, { ts: now, coord: cur }];
-    }
-    return prev;
-  });
-  const last = prev.at(-1);
-  // only store if moved more than 2 meters or if it's the first point
-  if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
-    return [...prev, { ts: now, coord: cur }];
-  }
-  return prev;
-});
-
-        // console.log('Drone position:', cur, 'progress:', t);
-
-        // ⭐ Update popup text/location each frame
+        // progress + ETA
         const metersLeft = Math.max(0, totalDistM - distKm * 1000);
         const secsLeft = Math.max(0, ((1 - t) * transitMs) / 1000).toFixed(0);
-        progressPopup
-          .setLngLat(cur)
-          .setHTML(`<strong>${Math.round(metersLeft)} m left</strong><br/>ETA ${secsLeft}s`);
-
-        // update path slices
-        let covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
-        if (!covered.geometry.coordinates || covered.geometry.coordinates.length < 2) {
-          covered = {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [] },
-            properties: {},
-          };
-        }
-
-        let remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
-        if (!remaining.geometry.coordinates || remaining.geometry.coordinates.length < 2) {
-          remaining = {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [] },
-            properties: {},
-          };
-        }
-
-        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
-        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
+        setProgressPct(t * 100);
+        setEtaText(`${Math.round(metersLeft)} m left • ETA ${secsLeft}s`);
 
         if (t < 1) {
           requestAnimationFrame(raf);
         } else {
-          // ✅ Arrived
-          progressPopup.remove(); // <-- remove ETA popup here
-
+          console.log('✅ Drone arrived at target');
+          setMissionPhase('scanning'); // 🧠 this triggers UI change
           setInTransit(false);
-          (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [] },
-            properties: {},
-          });
+          setEtaText(null);
+          setProgressPct(null);
 
-          // 🚀 Start scanning depending on mission type
+          // Begin scanning
           if (scanMode === 'CLICK') {
             startCircleScan(center);
           } else if (scanMode === 'STREET' && missionGeom?.line) {
             startStreetScan(missionGeom.line);
           } else {
-            startOrbit(center); // fallback
+            startOrbit(center);
           }
         }
       };
+
       requestAnimationFrame(raf);
     } else {
       // Special case → no distance to fly
-      progressPopup.remove();
+      // progressPopup.remove();
 
       setMissionActive(true);
       setInTransit(false);
@@ -1058,9 +991,6 @@ setDronePath((prev) => {
       };
 
       socket.onmessage = handleDetectionMessage;
-
-      
-      
     };
   };
   const startOrbit = (center: Coord) => {
@@ -1068,28 +998,30 @@ setDronePath((prev) => {
       clearTimeout(orbitTimerRef.current);
       orbitTimerRef.current = null;
     }
-  
+
     const orbit = turf.circle(center, ORBIT_RADIUS_M, {
       units: 'meters',
       steps: 120,
     }) as Feature<Polygon>;
-  
-    const ring = orbit.geometry.coordinates[0];
-    let i = 0;
-  
+
+    setMissionPhase('scanning'); // 🛰️ update HUD immediately
+
     const tick = () => {
-      // 🛑 Stop orbit if mission ended or replay mode is active
       if (!missionActiveRef.current || !animatingRef.current) return;
-      console.log('🌀 Orbit tick', i, 'isLive=', isLiveRef.current);
-
       i = (i + 1) % ring.length;
-      const cur = ring[i] as Coord;
-     // ✅ Only move marker visually if not in replay mode
-if (!isReplayModeRef.current && droneMarkerRef.current) {
-  droneMarkerRef.current.setLngLat(cur);
-}
 
-  
+      const cur = ring[i] as Coord;
+
+      // ✅ Move marker (skip during replay)
+      if (!isReplayModeRef.current && droneMarkerRef.current) {
+        droneMarkerRef.current.setLngLat(cur);
+      }
+
+      // 🟢 Update covered path progressively
+      const coveredCoords = ring.slice(0, i + 1);
+      coveredSrc.setData(turf.lineString(coveredCoords));
+
+      // 🔁 Record drone trail for timeline replay
       setDronePath((prev) => {
         const now = Date.now();
         const last = prev.at(-1);
@@ -1098,40 +1030,50 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         }
         return prev;
       });
-  
+
+      // 🕓 After one full orbit, increment counter
+      if (i === ring.length - 1) loops++;
+      if (loops >= 2) {
+        // 🧭 2 full orbits = scan complete
+        console.log(' Scan complete — returning to base');
+        setMissionPhase('returning');
+        stopOrbit(); // stop current loop
+        // startReturnToBase(center); // 🚀 start flight home
+        return;
+      }
+
       orbitTimerRef.current = window.setTimeout(tick, 80);
     };
-  
+
     tick();
   };
-  
-  
+
   const stopOrbit = () => {
     if (orbitTimerRef.current) {
       clearTimeout(orbitTimerRef.current);
       orbitTimerRef.current = null;
     }
   };
-  
+
   const handleTimelineSeek = (ts: number) => {
     if (dronePath.length < 2 || !mapRef.current) return;
-  
+    isReplayModeRef.current = true;
     // 🧭 Enter replay mode (visual only)
     setIsLive(false);
     setTimelineTs(ts);
     isReplayModeRef.current = true; // ✅ Mark replay active
-  
+
     // 🛑 Stop drone icon visually, but DO NOT pause mission updates
     if (inTransitRef.current === true) {
       console.log('🎥 Replay during ENROUTE — pausing only drone icon (mission continues)');
     } else {
       console.log('🎥 Replay during SCAN — visual only');
     }
-  
+
     // Find nearest points before & after
     const before = [...dronePath].reverse().find((p) => p.ts <= ts);
     const after = dronePath.find((p) => p.ts >= ts);
-  
+
     let interpolated: [number, number] | null = null;
     if (before && after && after.ts !== before.ts) {
       const ratio = (ts - before.ts) / (after.ts - before.ts);
@@ -1141,12 +1083,12 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
       ];
     } else if (before) interpolated = before.coord;
     else if (after) interpolated = after.coord;
-  
+
     // Freeze the drone icon at interpolated position
     if (interpolated && droneMarkerRef.current) {
       droneMarkerRef.current.setLngLat(interpolated);
     }
-  
+
     // Optional: draw replay overlay
     const m = mapRef.current;
     const replaySrc = m.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
@@ -1163,7 +1105,7 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
             }
       );
     }
-  
+
     // Update visible detections only (this is safe)
     const delayMs = 2000;
     const visibleEvents = allEvents.filter((e) => e.ts - delayMs <= ts);
@@ -1175,29 +1117,31 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
     const origin = originPortRef.current;
     const center = missionGeom.center;
     const toTarget = turf.lineString([origin.coord, center]) as Feature<LineString>;
-  
+
     console.log('✈️ Resuming enroute to target center', center);
-  
+
     const last = dronePath.at(-1)!;
     const fullDistKm = turf.length(toTarget, { units: 'kilometers' });
     const coveredDistKm = turf.distance(origin.coord, last.coord, { units: 'kilometers' });
     const remainingDistKm = Math.max(0, fullDistKm - coveredDistKm);
-    const remainingMs = (remainingDistKm * 1000) / DRONE_SPEED_MPS * 1000;
-  
+    const remainingMs = ((remainingDistKm * 1000) / DRONE_SPEED_MPS) * 1000;
+
     let startTs: number | null = null;
-  
+
     const raf = (now: number) => {
       if (!droneMarkerRef.current) return;
       if (!animatingRef.current) return; // paused while replaying
       if (startTs === null) startTs = now;
-  
+
       const t = Math.min((now - startTs) / remainingMs, 1);
-      const pt = turf.along(toTarget, coveredDistKm + remainingDistKm * t, { units: 'kilometers' }) as Feature<Point>;
+      const pt = turf.along(toTarget, coveredDistKm + remainingDistKm * t, {
+        units: 'kilometers',
+      }) as Feature<Point>;
       const cur = pt.geometry.coordinates as Coord;
-  
+
       droneMarkerRef.current.setLngLat(cur);
-  
-      setDronePath(prev => {
+
+      setDronePath((prev) => {
         const n = Date.now();
         const last = prev.at(-1);
         if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
@@ -1205,7 +1149,7 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         }
         return prev;
       });
-  
+
       if (t < 1) {
         requestAnimationFrame(raf);
       } else {
@@ -1215,20 +1159,20 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         startOrbit(center);
       }
     };
-  
+
     requestAnimationFrame(raf);
   };
-  
+
   const goLive = () => {
     console.log('🔴 Returning to LIVE mode...');
     setIsLive(true);
     setTimelineTs(null);
     isReplayModeRef.current = false; // ✅ Exit replay mode
-  
+
     animatingRef.current = true;
     setMissionActive(true);
     isResumingRef.current = true;
-  
+
     const m = mapRef.current;
     const replaySrc = m?.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
     if (replaySrc) {
@@ -1238,14 +1182,14 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         properties: {},
       } as GeoJSON.Feature<GeoJSON.LineString>);
     }
-  
+
     if (dronePath.length > 0 && droneMarkerRef.current) {
       const latest = dronePath.at(-1)!;
       droneMarkerRef.current.setLngLat(latest.coord);
     }
-  
+
     updateEventMarkers(allEvents);
-  
+
     if (missionActive && dronePath.length > 0) {
       if (inTransitRef.current) {
         console.log('🚀 Resuming ENROUTE flight toward target center');
@@ -1256,7 +1200,7 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         startOrbit(latest.coord);
       }
     }
-  
+
     // Reconnect WS if needed
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
@@ -1267,36 +1211,28 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
     } else {
       console.log('🟢 WebSocket already live');
     }
-  
+
     console.log('✅ Drone + events restored to LIVE mode (mission continued seamlessly)');
   };
-  
-  
-  
-  
-  
-  
+
   // 🧭 Helper to refresh visible event markers
   const updateEventMarkers = (events: DetectionEvent[]) => {
     const m = mapRef.current;
     if (!m) return;
-  
+
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
-  
+
     events.forEach((ev) => {
       const el = document.createElement('div');
       el.style.fontSize = '28px';
       el.style.cursor = 'pointer';
       el.innerText = iconMap[ev.label]?.icon ?? '❓';
-  
+
       const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
       markersRef.current.push(marker);
     });
   };
-  
-
-  
 
   const nearestPort = (pt: Coord): DronePort => {
     return initialDronePorts.reduce((best, p) => {
@@ -1713,34 +1649,6 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
   }, []);
 
   // --- ✅ NEW: window focus/blur detection ---
-  useEffect(() => {
-    const handleBlur = () => {
-      lastAwayTime.current = Date.now();
-      setAwayReason('out-of-focus'); // 👈 add this
-    };
-    const handleFocus = () => {
-      if (lastAwayTime.current) {
-        const now = Date.now();
-
-        // fetch recap for events you missed
-        // existing missed events logic
-        const missed = events.filter((e) => e.ts > lastAwayTime.current!);
-        if (missed.length) {
-          setMissedEvents(missed);
-          setShowQuickBrief(true);
-        }
-
-        lastAwayTime.current = null;
-      }
-    };
-
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [events]);
 
   // Snapshot when tab hidden (optional)
   useEffect(() => {
@@ -1765,19 +1673,6 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
         else {
           coord = missionGeom?.center ?? (mapRef.current?.getCenter().toArray() as Coord);
         }
-
-        // setEvents((prev) => [
-        //   ...prev,
-        //   {
-        //     id: `snap-${ts}`,
-        //     ts,
-        //     label: 'snapshot',
-        //     score: 1,
-        //     coord, // ✅ now tied to actual drone path
-        //     seen: false,
-        //     thumbnail: snap,
-        //   },
-        // ]);
       }
     };
 
@@ -1793,6 +1688,7 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
     setEvents([]);
     setMissionGeom(null);
     setShowQuickBrief(false); // ✅ reset quick brief
+    setMissionPhase('returning');
     // clear sources
     const m = mapRef.current!;
     (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
@@ -1808,44 +1704,6 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
 
     droneMarkerRef.current?.remove();
   };
-
-  // Reset timer on any activity
-  const markActivity = () => {
-    lastActivity.current = Date.now();
-    if (isIdle) setIsIdle(false);
-  };
-
-  useEffect(() => {
-    const activityEvents = ['mousemove', 'keydown', 'scroll', 'mousedown', 'touchstart'];
-    const handleActivity = () => {
-      lastActivity.current = Date.now();
-      setIsIdle(false);
-    };
-    activityEvents.forEach((ev) => window.addEventListener(ev, handleActivity));
-
-    const check = setInterval(() => {
-      if (Date.now() - lastActivity.current > IDLE_TIMEOUT) {
-        setIsIdle(true);
-        if (!idleStart.current) idleStart.current = Date.now();
-      }
-    }, 10000);
-
-    return () => {
-      activityEvents.forEach((ev) => window.removeEventListener(ev, handleActivity));
-      clearInterval(check);
-    };
-  }, []); // ✅ run once
-
-  useEffect(() => {
-    if (!isIdle && idleStart.current) {
-      const missed = events.filter((e) => e.ts > idleStart.current!); // <- !
-      if (missed.length) {
-        setMissedEvents(missed);
-        setShowQuickBrief(true);
-      }
-      idleStart.current = null;
-    }
-  }, [isIdle, events]);
 
   const activeBtn = (on: boolean): React.CSSProperties => ({
     width: 44,
@@ -2079,6 +1937,132 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
             </button>
           )}
         </main>
+        <ReturnModal
+          show={showReturnModal}
+          missedEvents={missedEvents}
+          reason={awayReason}
+          onClose={(remaining) => {
+            setShowReturnModal(false);
+            setNotificationEvents((prev) => [...prev, ...remaining]);
+          }}
+          onSelectEvent={(id) => {
+            /* flyTo etc. */
+          }}
+        />
+        {/* Mission Status HUD */}
+        {missionActive && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 76,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(255,255,255,0.9)',
+              backdropFilter: 'blur(6px)',
+              borderRadius: 12,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+              padding: '10px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              zIndex: 3000,
+              cursor: 'default',
+            }}
+            title={
+              missionPhase === 'in-transit'
+                ? 'Drone is currently en route to the incident area.'
+                : missionPhase === 'scanning'
+                ? 'Drone is performing its scanning pattern.'
+                : missionPhase === 'returning'
+                ? 'Drone is returning to base.'
+                : 'Mission idle.'
+            }
+          >
+            {/* Icon */}
+            <div style={{ fontSize: 24 }}>
+              {missionPhase === 'in-transit'
+                ? '🚀'
+                : missionPhase === 'scanning'
+                ? '🛰️'
+                : missionPhase === 'returning'
+                ? '✅'
+                : '⚪'}
+            </div>
+
+            {/* Main Text */}
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  color:
+                    missionPhase === 'in-transit'
+                      ? '#0ea5e9'
+                      : missionPhase === 'scanning'
+                      ? '#16a34a'
+                      : missionPhase === 'returning'
+                      ? '#ca8a04'
+                      : '#6b7280',
+                }}
+              >
+                {missionPhase === 'in-transit'
+                  ? 'En route to target'
+                  : missionPhase === 'scanning'
+                  ? 'Drone on station'
+                  : missionPhase === 'returning'
+                  ? 'Returning to base'
+                  : 'Idle'}
+              </div>
+
+              {/* Subtext */}
+              <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>
+                {missionPhase === 'in-transit' && etaText
+                  ? etaText
+                  : missionPhase === 'scanning'
+                  ? `Performing ${scanMode} scan...`
+                  : missionPhase === 'returning'
+                  ? 'Scan complete — navigation to base in progress...'
+                  : 'Awaiting new mission'}
+              </div>
+
+              {/* Progress bar only during transit */}
+              {missionPhase === 'in-transit' && progressPct !== null && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    height: 5,
+                    background: '#e5e7eb',
+                    borderRadius: 4,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${progressPct}%`,
+                      background: '#0ea5e9',
+                      transition: 'width 0.3s ease',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Optional small drone/port image */}
+            {/* <img src="/images/drone-icon.png" alt="drone icon" style={{ width: 28, height: 28 }} /> */}
+          </div>
+        )}
+
+        {missionPhase === 'returning' && (
+          <>
+            <div style={{ fontWeight: 700, color: '#111827' }}>
+              ✅ Scan complete — returning to base
+            </div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+              Drone navigation back to origin in progress...
+            </div>
+          </>
+        )}
+
         {/* 🔔 One-off toast when a new event arrives */}
         {newEventToast && (
           <div
@@ -2113,28 +2097,27 @@ if (!isReplayModeRef.current && droneMarkerRef.current) {
             /* flyTo etc. */
           }}
         />
-       {(missionActive || dronePath.length > 0) && (
-  <div>
-    <VideoReview
-      ref={videoRef}
-      src={DroneEnrouteVideo}
-      expanded={videoExpanded}
-      onToggle={toggleVideo}
-      events={currentBoxes}
-    />
-    <EventTimeline
-      videoHandleRef={videoRef}
-      events={allEvents}
-      startTs={streamStart ?? Date.now()}
-      filters={activeFilters}
-      onFilterChange={setActiveFilters}
-      availableLabels={[...detectedLabels]}
-      onSeek={handleTimelineSeek}
-      onGoLive={goLive}
-    />
-  </div>
-)}
-
+        {(missionActive || dronePath.length > 0) && (
+          <div>
+            <VideoReview
+              ref={videoRef}
+              src={DroneEnrouteVideo}
+              expanded={videoExpanded}
+              onToggle={toggleVideo}
+              events={currentBoxes}
+            />
+            <EventTimeline
+              videoHandleRef={videoRef}
+              events={allEvents}
+              startTs={streamStart ?? Date.now()}
+              filters={activeFilters}
+              onFilterChange={setActiveFilters}
+              availableLabels={[...detectedLabels]}
+              onSeek={handleTimelineSeek}
+              onGoLive={goLive}
+            />
+          </div>
+        )}
       </div>
     </>
   );
