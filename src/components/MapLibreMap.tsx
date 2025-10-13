@@ -923,18 +923,21 @@ if (!isResumingRef.current) {
       let startTs: number | null = null;
       const raf = (now: number) => {
         if (!droneMarkerRef.current) return;
-        animatingRef.current = false;
+      
+        // ✅ Do not disable animation here
+        if (isReplayModeRef.current) return; // only skip visuals in replay mode
+        animatingRef.current = true;
+      
         if (startTs === null) startTs = now;
         const t = Math.min((now - startTs) / transitMs, 1);
         const distKm = totalDistKm * t;
-
-        // move drone along path
+      
+        // Move drone only when not replaying
         const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
         const cur = pt.geometry.coordinates as Coord;
-     // ✅ Only move marker visually if not in replay mode
-if (!isReplayModeRef.current && droneMarkerRef.current) {
-  droneMarkerRef.current.setLngLat(cur);
-}
+        if (!isReplayModeRef.current) {
+          droneMarkerRef.current.setLngLat(cur);
+        }
 
         // ✅ Record position + timestamp for timeline replay
 setDronePath((prev) => {
