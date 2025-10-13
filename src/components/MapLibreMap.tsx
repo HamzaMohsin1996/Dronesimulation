@@ -899,8 +899,6 @@ export default function MapLibreMap() {
       const raf = (now: number) => {
         if (!droneMarkerRef.current) return;
         if (!missionActiveRef.current) return;
-        if (!isLiveRef.current) return;
-
         if (startTs === null) startTs = now;
 
         const t = Math.min((now - startTs) / transitMs, 1);
@@ -909,6 +907,13 @@ export default function MapLibreMap() {
         const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
         const cur = pt.geometry.coordinates as Coord;
         droneMarkerRef.current.setLngLat(cur);
+        // ✅ Update covered + remaining paths in real time
+        const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
+        const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
+
+        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
+        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
+
         setDronePath((prev) => {
           const now = Date.now();
           const last = prev.at(-1);
@@ -964,7 +969,7 @@ export default function MapLibreMap() {
 
       // Send frames every 500 ms while mission is active
       const sendLoop = setInterval(() => {
-        if (!missionActiveRef.current || !animatingRef.current) {
+        if (!missionActiveRef.current) {
           clearInterval(sendLoop);
           return;
         }
@@ -1004,6 +1009,10 @@ export default function MapLibreMap() {
       steps: 120,
     }) as Feature<Polygon>;
 
+    const ring = orbit.geometry.coordinates[0];
+    let i = 0;
+    let loops = 0;
+
     setMissionPhase('scanning'); // 🛰️ update HUD immediately
 
     const tick = () => {
@@ -1017,10 +1026,6 @@ export default function MapLibreMap() {
         droneMarkerRef.current.setLngLat(cur);
       }
 
-      // 🟢 Update covered path progressively
-      const coveredCoords = ring.slice(0, i + 1);
-      coveredSrc.setData(turf.lineString(coveredCoords));
-
       // 🔁 Record drone trail for timeline replay
       setDronePath((prev) => {
         const now = Date.now();
@@ -1031,17 +1036,7 @@ export default function MapLibreMap() {
         return prev;
       });
 
-      // 🕓 After one full orbit, increment counter
-      if (i === ring.length - 1) loops++;
-      if (loops >= 2) {
-        // 🧭 2 full orbits = scan complete
-        console.log(' Scan complete — returning to base');
-        setMissionPhase('returning');
-        stopOrbit(); // stop current loop
-        // startReturnToBase(center); // 🚀 start flight home
-        return;
-      }
-
+      if (i === ring.length - 1) loops++; // Keep scanning indefinitely
       orbitTimerRef.current = window.setTimeout(tick, 80);
     };
 
@@ -1061,11 +1056,13 @@ export default function MapLibreMap() {
     // 🧭 Enter replay mode (visual only)
     setIsLive(false);
     setTimelineTs(ts);
+    // animatingRef.current = false;
     isReplayModeRef.current = true; // ✅ Mark replay active
 
-    // 🛑 Stop drone icon visually, but DO NOT pause mission updates
+    //  Stop drone icon visually, but DO NOT pause mission updates
     if (inTransitRef.current === true) {
       console.log('🎥 Replay during ENROUTE — pausing only drone icon (mission continues)');
+      animatingRef.current = false; // stop live movement
     } else {
       console.log('🎥 Replay during SCAN — visual only');
     }
@@ -1130,7 +1127,7 @@ export default function MapLibreMap() {
 
     const raf = (now: number) => {
       if (!droneMarkerRef.current) return;
-      if (!animatingRef.current) return; // paused while replaying
+      if (!missionActiveRef.current || !animatingRef.current) return; //  check pause state
       if (startTs === null) startTs = now;
 
       const t = Math.min((now - startTs) / remainingMs, 1);
@@ -1166,6 +1163,7 @@ export default function MapLibreMap() {
   const goLive = () => {
     console.log('🔴 Returning to LIVE mode...');
     setIsLive(true);
+    isLiveRef.current = true;
     setTimelineTs(null);
     isReplayModeRef.current = false; // ✅ Exit replay mode
 
@@ -1194,10 +1192,19 @@ export default function MapLibreMap() {
       if (inTransitRef.current) {
         console.log('🚀 Resuming ENROUTE flight toward target center');
         resumeEnrouteFlight();
-      } else if (!orbitTimerRef.current) {
-        const latest = dronePath.at(-1)!;
-        console.log('🌀 Ensuring orbit is running');
-        startOrbit(latest.coord);
+      } else {
+        console.log('🛰️ Resuming orbit — continuing existing path');
+        animatingRef.current = true;
+
+        // 🔑 Resume the orbit without redrawing or resetting
+        if (orbitTimerRef.current === null) {
+          // continue the previous orbit timer loop
+          const resumeOrbit = () => {
+            if (!missionActiveRef.current || !animatingRef.current) return;
+            orbitTimerRef.current = window.setTimeout(resumeOrbit, 80);
+          };
+          resumeOrbit();
+        }
       }
     }
 
@@ -2052,7 +2059,7 @@ export default function MapLibreMap() {
           </div>
         )}
 
-        {missionPhase === 'returning' && (
+        {/* {missionPhase === 'returning' && (
           <>
             <div style={{ fontWeight: 700, color: '#111827' }}>
               ✅ Scan complete — returning to base
@@ -2061,7 +2068,7 @@ export default function MapLibreMap() {
               Drone navigation back to origin in progress...
             </div>
           </>
-        )}
+        )} */}
 
         {/* 🔔 One-off toast when a new event arrives */}
         {newEventToast && (
