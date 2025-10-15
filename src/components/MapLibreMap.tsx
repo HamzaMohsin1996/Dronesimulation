@@ -56,6 +56,7 @@ export default function MapLibreMap() {
   const originPortRef = useRef<DronePort | null>(null);
 
   const videoRef = useRef<VideoReviewHandle | null>(null);
+  const arrivalRef = useRef<number | null>(null);
 
   const [scanMode, setScanMode] = useState<ScanMode>('CLICK'); // ✅ circle area by default
   const [missionGeom, setMissionGeom] = useState<{
@@ -278,6 +279,27 @@ export default function MapLibreMap() {
 
     return () => m.remove();
   }, []);
+  useEffect(() => {
+    if (missionPhase !== 'in-transit' || !arrivalRef.current) return;
+
+    const timer = setInterval(() => {
+      const remainingMs = arrivalRef.current! - Date.now();
+
+      if (remainingMs <= 0) {
+        clearInterval(timer);
+        setEtaText('Arrived at target');
+        setMissionPhase('scanning'); // ✅ optional auto-transition
+        return;
+      }
+
+      const mins = Math.floor(remainingMs / 60000);
+      const secs = Math.floor((remainingMs % 60000) / 1000);
+      const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      setEtaText(`ETA: ${formatted}`);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [missionPhase]);
 
   // 👇 Add this effect inside your component
   useEffect(() => {
@@ -893,8 +915,22 @@ export default function MapLibreMap() {
 
     // ETA
     // ETA
-    const eta = new Date(Date.now() + transitMs);
-    setEtaText(`ETA ${eta.toLocaleTimeString()}`);
+    // ✅ Compute distance from origin to center
+    const distanceMeters = turf.distance(origin.coord, center, { units: 'meters' });
+    const etaSeconds = distanceMeters / DRONE_SPEED_MPS;
+
+    // ✅ Store arrival time for countdown
+    const arrivalTimestamp = Date.now() + etaSeconds * 1000;
+    arrivalRef.current = arrivalTimestamp;
+    setEtaText(`ETA: ${Math.round(etaSeconds)}s`);
+
+    setMissionPhase('in-transit');
+    setInTransit(true);
+
+    // Keep it in a ref so the timer effect can use it
+    arrivalRef.current = arrivalTimestamp;
+
+    // setEtaText(`ETA ${eta.toLocaleTimeString()}`);
 
     // ✅ NEW logic here
     if (toTarget.geometry.coordinates.length >= 2 && totalDistKm > 0) {
