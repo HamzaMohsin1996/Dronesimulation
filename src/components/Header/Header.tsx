@@ -10,10 +10,16 @@ import type { DetectionEvent } from '../../shared/DetectionEvent';
 type HeaderProps = {
   notifications: DetectionEvent[];
   onSelectNotification: (e: DetectionEvent) => void;
-  tabs?: { title: string; path: string; icon?: string }[]; // ✅ optional tabs
+  tabs?: { title: string; path: string; icon?: string }[];
+  connectionStatus?: 'connected' | 'connecting' | 'disconnected';
 };
 
-const Header: React.FC<HeaderProps> = ({ notifications, onSelectNotification, tabs }) => {
+const Header: React.FC<HeaderProps> = ({
+  notifications,
+  onSelectNotification,
+  tabs,
+  connectionStatus,
+}) => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -60,6 +66,25 @@ const Header: React.FC<HeaderProps> = ({ notifications, onSelectNotification, ta
           {/* --- Right: Icons --- */}
           <div className="col d-flex justify-content-end">
             <div className="icon-buttons position-relative">
+              {connectionStatus && (
+                <div
+                  className={`status-chip ${connectionStatus}`}
+                  title={
+                    connectionStatus === 'connected'
+                      ? 'Drone link established — live feed active'
+                      : connectionStatus === 'connecting'
+                      ? 'Connecting to drone...'
+                      : 'Disconnected — waiting for launch'
+                  }
+                >
+                  {connectionStatus === 'connected'
+                    ? '🟢 Drone Live'
+                    : connectionStatus === 'connecting'
+                    ? '🟡 Connecting...'
+                    : '🔴 Disconnected'}
+                </div>
+              )}
+
               <button className="btn-custom">
                 <img src={PlaybackIcon} alt="Playback" width={24} height={24} />
               </button>

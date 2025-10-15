@@ -30,7 +30,7 @@ type Props = {
   onFilterChange: (next: Set<Label>) => void;
   initialWindowMin?: number;
   availableLabels: string[];
-  onSeek?: (timestamp: number) => void;   // 👈 ADD THIS LINE
+  onSeek?: (timestamp: number) => void; // 👈 ADD THIS LINE
 
   /** NEW (all optional) */
   rangeAnnotations?: RangeAnnotation[];
@@ -271,18 +271,17 @@ export default function EventTimeline({
   const goLive = () => {
     const api = videoHandleRef.current;
     if (!api?.videoEl) return;
-  
+
     // jump video to current time
     api.seekTo((Date.now() - startTs) / 1000);
     api.videoEl.play();
-  
+
     setReviewMs(null);
     setIsLive(true); // keep local auto-scroll
-  
+
     // 🧭 notify parent (map) that we’re returning to live mode
-    onGoLive?.();  // 👈 this triggers the parent’s map sync
+    onGoLive?.(); // 👈 this triggers the parent’s map sync
   };
-  
 
   useEffect(() => {
     const el = videoHandleRef.current?.videoEl;
@@ -557,14 +556,13 @@ export default function EventTimeline({
             const r = trackRef.current.getBoundingClientRect();
             const ms = xToMs(e.clientX - r.left, r.width);
             setReviewMs(ms);
-          
+
             // ⏩ Seek video and pause
             videoHandleRef.current?.seekAndPause((ms - startTs) / 1000);
-          
+
             // 🗺️ NEW: Tell parent (map) to replay drone position
             onSeek?.(ms);
           }}
-          
         >
           {/* background bands for range annotations */}
           {rangeAnnotations

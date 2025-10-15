@@ -38,6 +38,9 @@ const initialDronePorts: DronePort[] = [
   { coord: [11.505, 48.719], id: 'drone-port-1', status: 'idle' },
   { coord: [11.502, 48.716], id: 'drone-port-2', status: 'idle' },
 ];
+type IndividualMapProps = {
+  setConnectionStatus: (status: 'connected' | 'connecting' | 'disconnected') => void;
+};
 
 // Mission modes (as you asked: STREET / POI / FOI; plus CLICK if you want a quick circle)
 type ScanMode = 'STREET' | 'POI' | 'FOI' | 'CLICK';
@@ -48,7 +51,7 @@ const DRONE_SPEED_MPS = 15; // used to compute ETA (≈54 km/h)
 const ORBIT_RADIUS_M = 70; // simple orbit after arrival (optional eye-candy)
 
 // ---------------- Component ----------------
-export default function MapLibreMap() {
+export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapEl = useRef<HTMLDivElement | null>(null);
 
@@ -1003,10 +1006,12 @@ export default function MapLibreMap() {
     // inside startMission, after setMissionActive(true)
     // const socket = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
     const socket = new WebSocket('wss://HamzaMohsin-IC-FReD-server.hf.space/ws');
+    setConnectionStatus('connecting'); // 🟡 show connecting
     setWs(socket);
 
     socket.onopen = () => {
       console.log('🔌 Detection WebSocket connected');
+      setConnectionStatus('connected'); // 🟢 live
 
       // Send frames every 500 ms while mission is active
       const sendLoop = setInterval(() => {
@@ -1034,6 +1039,7 @@ export default function MapLibreMap() {
       socket.onclose = () => {
         console.log('🔌 Detection WebSocket closed');
         clearInterval(sendLoop);
+        setConnectionStatus('disconnected');
       };
 
       socket.onmessage = handleDetectionMessage;
