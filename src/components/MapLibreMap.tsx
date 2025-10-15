@@ -2001,7 +2001,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
               display: 'flex',
               alignItems: 'center',
               gap: 12,
-              zIndex: 3000,
+              zIndex: videoExpanded ? 101 : 106,
               cursor: 'default',
             }}
             title={
