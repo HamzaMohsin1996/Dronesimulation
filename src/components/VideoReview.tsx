@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react';
 import { FiMaximize2, FiX } from 'react-icons/fi';
+import type { DetectionEvent } from '../shared/DetectionEvent';
 
 export type VideoReviewHandle = {
   captureFrame: () => string | null;
@@ -11,14 +12,14 @@ export type VideoReviewHandle = {
   seekAndPlay: (sec: number) => void; // ✅ new
 };
 
-type DetectionEvent = {
-  id: string;
-  label: string;
-  score: number;
-  bbox: [number, number, number, number];
-  thumbnail?: string;
-  ts?: number;
-};
+// type DetectionEvent = {
+//   id: string;
+//   label: string;
+//   score: number;
+//   bbox: [number, number, number, number];
+//   thumbnail?: string;
+//   ts?: number;
+// };
 
 type Props = {
   src: string;
@@ -107,6 +108,7 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
         ctx.clearRect(0, 0, rw, rh);
 
         events.forEach((ev) => {
+          if (!ev.bbox) return false; // ✅ skip if missing
           const [x1, y1, x2, y2] = ev.bbox;
           const scaleX = rw / vw;
           const scaleY = rh / vh;
@@ -155,6 +157,7 @@ const VideoReview = forwardRef<VideoReviewHandle, Props>(
         const scaleY = rh / vh;
 
         const hit = events.find((ev) => {
+          if (!ev.bbox) return false; // ✅ skip if missing
           const [x1, y1, x2, y2] = ev.bbox;
           const left = x1 * scaleX;
           const top = y1 * scaleY;
