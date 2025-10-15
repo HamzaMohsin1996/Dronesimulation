@@ -24,6 +24,7 @@ import EventFeed from './EventFeed';
 import { iconMap } from '../shared/iconMap';
 import RecapPanel from './RecapPanel';
 import { useReengagement } from './useReengagement';
+import PegmanControl from './PegmanIcon';
 
 // ---------------- Config ----------------
 type Coord = [number, number];
@@ -279,6 +280,9 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
     });
 
     mapRef.current = m;
+    console.log('✅ Mapbox loaded');
+    (window as any).mapboxMapRef = m; // 👈 Makes PegmanControl work
+    console.log('🧭 mapboxMapRef', (window as any).mapboxMapRef);
 
     return () => m.remove();
   }, []);
@@ -772,6 +776,39 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
       features: [scanLine],
     });
   };
+  const handlePegmanDrop = (lng: number, lat: number) => {
+    console.log('🧍 Pegman dropped at', lng, lat);
+
+    // Optional: show marker feedback
+    new mapboxgl.Marker({ color: '#f97316' })
+      .setLngLat([lng, lat])
+      .setPopup(
+        new mapboxgl.Popup({ offset: 12 }).setHTML(
+          `<strong>Replay point</strong><br>${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        )
+      )
+      .addTo(mapRef.current!);
+
+    // Example replay logic — fly to closest event
+    const dropped = turf.point([lng, lat]);
+    const nearby = allEvents.find(
+      (ev) => turf.distance(dropped, turf.point(ev.coord)) < 0.05 // ~50 m
+    );
+
+    if (nearby) {
+      console.log('🎞️ Replaying nearby event', nearby);
+      mapRef.current?.flyTo({ center: nearby.coord, zoom: 16 });
+      setSelectedEventId(nearby.id);
+
+      const first = allEvents[0];
+      if (first && videoRef.current) {
+        const offset = Math.max(0, (nearby.ts - first.ts) / 1000);
+        videoRef.current.seekTo(offset);
+      }
+    } else {
+      console.log('No nearby events for this drop.');
+    }
+  };
 
   const handleDetectionMessage = (msg: MessageEvent) => {
     try {
@@ -1095,6 +1132,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
       orbitTimerRef.current = null;
     }
   };
+
   const handleTimelineSeek = (ts: number) => {
     if (dronePath.length < 2 || !mapRef.current) return;
 
@@ -1852,12 +1890,24 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
               zIndex: videoExpanded ? 105 : 106,
             }}
           />
+          <div
+            className="scanned-area-overlay"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: 'none',
+              zIndex: 1200,
+            }}
+          />
 
           {/* Always-visible mission mode buttons (right-center) */}
           <div
             style={{
               position: 'absolute',
-              top: '50%',
+              top: '10%',
               right: 20,
               transform: 'translateY(-50%)',
               display: 'flex',
@@ -1886,6 +1936,11 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
             >
               📏
             </button>
+            <PegmanControl
+              key="pegman"
+              enabled={missionActive || allEvents.length > 0}
+              onDropOnMap={handlePegmanDrop}
+            />
           </div>
 
           {/* Video Review — shown only when mission active */}
