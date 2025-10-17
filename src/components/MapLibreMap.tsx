@@ -217,16 +217,17 @@ const lastScannedUpdateRef = useRef(0); // used to throttle map updates
         data: { type: 'FeatureCollection', features: [] },
       });
       
+      const beforeId = m.getLayer("path-covered") ? "path-covered" : undefined;
       m.addLayer(
         {
-          id: 'coverage-zone',
-          type: 'fill',
-          source: 'coverage-zone',
+          id: "coverage-zone",
+          type: "fill",
+          source: "coverage-zone",
           paint: { "fill-color": "#ff9500", "fill-opacity": 0.15 },
-
         },
-        'path-covered' // 👈 insert before this layer to ensure it’s visible
+        beforeId // ✅ only insert before if layer exists
       );
+      
       // --- Orange cumulative scanned zone ---
 m.addSource("scanned", {
   type: "geojson",
@@ -308,21 +309,31 @@ m.addLayer({
       });
 
       // --- Add your drone port icons as markers ---
-      initialDronePorts.forEach(({ coord }) => {
-        const el = document.createElement('div');
-        el.style.width = '30px';
-        el.style.height = '30px';
-        el.style.transform = 'translate(-50%,-50%)';
-        const img = document.createElement('img');
-        img.src = DronePortIcon;
-        img.alt = 'Drone Port';
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.objectFit = 'contain';
-        el.appendChild(img);
-        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
-      });
-    });
+           // --- Add your drone port icons as markers ---
+           initialDronePorts.forEach(({ coord }) => {
+            const el = document.createElement('div');
+            el.style.width = '30px';
+            el.style.height = '30px';
+            el.style.transform = 'translate(-50%,-50%)';
+            const img = document.createElement('img');
+            img.src = DronePortIcon;
+            img.alt = 'Drone Port';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'contain';
+            el.appendChild(img);
+            new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
+          });
+    
+          // ✅ Make orange scanned area always appear on top
+          if (m.getLayer("scanned-fill")) {
+            try {
+              m.moveLayer("scanned-fill"); // brings it above all others
+            } catch (err) {
+              console.warn("⚠️ Could not move scanned-fill:", err);
+            }
+          }
+        });
 
     mapRef.current = m;
     console.log('✅ Mapbox loaded');
@@ -877,13 +888,19 @@ m.addLayer({
     const snapshot = videoRef.current?.captureFrame?.();
   
     // Highlight polygon
-    if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
-    m.addLayer({
-      id: "highlight-fov",
-      type: "line",
-      source: { type: "geojson", data: match },
-      paint: { "line-color": "#ff0", "line-width": 3 },
-    });
+  // 🧹 Clean up any existing highlight before adding new one
+if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
+if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
+
+// 🆕 Add a fresh source + layer
+m.addSource("highlight-fov", { type: "geojson", data: match });
+m.addLayer({
+  id: "highlight-fov",
+  type: "line",
+  source: "highlight-fov",
+  paint: { "line-color": "#ff0", "line-width": 3 },
+});
+
   
     // Fade highlight after 3s
     setTimeout(() => {
@@ -1412,6 +1429,7 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
 
     // --- Clear the replay overlay path ---
     const m = mapRef.current;
+    
     const replaySrc = m?.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
     if (replaySrc) {
       replaySrc.setData({
@@ -1426,7 +1444,15 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
       const pos = droneMarkerRef.current.getLngLat();
       m.easeTo({ center: [pos.lng, pos.lat], duration: 800 });
     }
+    if (m) {
+      if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
+      if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
+// Remove any open popups from the DOM (Pegman or others)
+document.querySelectorAll('.mapboxgl-popup').forEach((el) => el.remove());
+if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
+if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
 
+    }
     console.log('✅ LIVE mode resumed (no restart needed)');
   };
 
@@ -1453,9 +1479,17 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
 function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
   if (!m) return;
 
-  // 1️⃣ Create and simplify FOV polygon to keep geometry light
+  const MAX_SCANS = 50;
+  const now = performance.now();
+
+  // 🧹 Initialize scannedRef if missing
+  if (!scannedRef.current || !Array.isArray(scannedRef.current.features)) {
+    scannedRef.current = { type: "FeatureCollection", features: [] };
+  }
+
+  // 1️⃣ Create and simplify FOV polygon
   const fov = makeFovRect(position, heading) as Feature<Polygon, any>;
-  const simplified = turf.simplify(fov, { tolerance: 2, highQuality: false });
+  const simplified = turf.simplify(fov, { tolerance: 10, highQuality: false }); // ⬆️ more aggressive simplification
   if (!simplified.properties) simplified.properties = {};
 
   const timestamp = Date.now();
@@ -1475,24 +1509,64 @@ function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
     thumbnail: snapshot,
   });
 
-  // 3️⃣ Keep only the most recent N scans (avoid memory bloat)
+  // 3️⃣ Keep recent scans only
   const scans = scannedRef.current.features;
   if (scans.length >= MAX_SCANS) scans.shift();
   scans.push(simplified);
 
-  // 4️⃣ Throttle updates to Mapbox (once per second)
-  const now = performance.now();
-  if (now - lastScannedUpdateRef.current > 1000) {
-    const scannedSrc = m.getSource("scanned") as mapboxgl.GeoJSONSource | undefined;
-    if (scannedSrc) scannedSrc.setData(scannedRef.current);
-    lastScannedUpdateRef.current = now;
-  }
+  // 4️⃣ Throttle orange zone update (every 2s)
+if (now - (lastScannedUpdateRef.current || 0) > 2000) {
+  lastScannedUpdateRef.current = now;
 
-  // 5️⃣ Always update live FOV (green footprint)
+  try {
+    const slice = scans.slice(-5) as Feature<Polygon>[];
+    if (slice.length === 0) return;
+
+    // 1️⃣ Combine the last few scans visually
+    const recentCollection = turf.featureCollection(slice);
+    const buffered = turf.buffer(recentCollection, 5, { units: "meters" }); // small overlap smoothing
+
+    // 2️⃣ Merge with the cumulative scannedRef data — keep history!
+    const mergedCollection: FeatureCollection<Polygon | MultiPolygon> = {
+      type: "FeatureCollection",
+      features: [
+        // Filter to only polygons (safety for TS + runtime)
+        ...scannedRef.current.features.filter(
+          (f): f is Feature<Polygon | MultiPolygon> =>
+            f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
+        ),
+        ...((buffered?.features.filter(
+          (f): f is Feature<Polygon | MultiPolygon> =>
+            f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
+        ) ?? []) as Feature<Polygon | MultiPolygon>[]),
+      ],
+    };
+    
+    // 3️⃣ Simplify merged geometry for performance
+    const simplified = turf.simplify(mergedCollection, {
+      tolerance: 8,
+      highQuality: false,
+    }) as FeatureCollection<Polygon | MultiPolygon>;
+
+    // 4️⃣ Update the orange scanned layer
+    (m.getSource("scanned") as mapboxgl.GeoJSONSource)?.setData(simplified);
+
+    // 5️⃣ Persist new geometry in ref
+    scannedRef.current = simplified;
+  } catch (err) {
+    console.warn("⚠️ turf.buffer/simplify failed — fallback to direct setData", err);
+    (m.getSource("scanned") as mapboxgl.GeoJSONSource)?.setData(
+      scannedRef.current as FeatureCollection
+    );
+  }
+}
+
+
+  // 5️⃣ Always update live green FOV footprint
   const fovSrc = m.getSource("sensorFov") as mapboxgl.GeoJSONSource | undefined;
   if (fovSrc) fovSrc.setData(simplified);
 
-  // 6️⃣ Save to React state for replay/history (skip duplicates)
+  // 6️⃣ Persist to React state
   setScanClips((prev) => {
     if (prev.some((clip) => clip.id === simplified.properties.id)) return prev;
     return [
@@ -1514,6 +1588,7 @@ function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
     )}°), confidence ${(confidence * 100).toFixed(0)}%`
   );
 }
+
 
 function ensureSourceAndLayer(map: mapboxgl.Map) {
   const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
