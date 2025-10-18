@@ -1,0 +1,130 @@
+/* -------------------------
+   Onboarding (Bootstrap-based)
+   ------------------------- */
+
+/* Animations */
+.fade-in { animation: fadeIn .3s ease-out; }
+.content-swap { animation: slide .22s ease; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .fade-in, .content-swap { animation: none !important; }
+}
+
+/* Subtle hover lift for cards */
+.hover-lift {
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 .35rem .9rem rgba(0,0,0,.06);
+}
+
+/* Small rounded icon background */
+.icon-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #f3f4f6; /* light gray */
+  color: #111827;      /* slate-900 */
+}
+
+/* Practice map mock */
+.practice-map {
+  height: 260px;
+  position: relative;
+  background: linear-gradient(135deg, #f7f7f9, #eceef2);
+}
+
+/* Clickable sector button */
+.sector-btn {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  padding: .35rem .75rem;
+  border-radius: 14px;
+  border: 1px solid #ced4da;
+  background: #fff;
+  font-weight: 600;
+  transition: background-color .15s ease, transform .05s ease, border-color .15s ease;
+}
+.sector-btn:hover { background: #f8f9fa; }
+.sector-btn:active { transform: translateY(1px); }
+
+/* After click (completed) */
+.sector-done {
+  background: #198754;   /* Bootstrap success */
+  color: #fff;
+  border-color: #157347;
+}
+
+/* Pegman dropzone */
+.dropzone {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  width: 150px;
+  height: 90px;
+  border-radius: 12px;
+  border: 2px dashed #ced4da;
+  display: grid;
+  place-items: center;
+  font-size: .8rem;
+  background: rgba(255, 255, 255, .7);
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.dropzone-done {
+  border-color: #198754;
+  background: #e6f4ea;
+  color: #146c43;
+}
+
+/* Draggable Pegman pill */
+.pegman {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .65rem;
+  border-radius: 12px;
+  border: 1px solid #ced4da;
+  background: #fff;
+  cursor: grab;
+  user-select: none;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.pegman:active { cursor: grabbing; }
+.pegman-done {
+  border-color: #198754;
+  background: #e6f4ea;
+  color: #146c43;
+}
+
+/* Focus styles for keyboard accessibility */
+.sector-btn:focus,
+.pegman:focus,
+.dropzone:focus {
+  outline: 3px solid #86b7fe;      /* similar to Bootstrap focus ring */
+  outline-offset: 2px;
+}
+
+/* Utility: tiny shadow variant for cards */
+.shadow-xs {
+  box-shadow: 0 .25rem .75rem rgba(0,0,0,.05);
+}
+
+/* Optional: center helper for placeholders */
+.d-grid.place-items-center {
+  display: grid !important;
+  place-items: center !important;
+}
