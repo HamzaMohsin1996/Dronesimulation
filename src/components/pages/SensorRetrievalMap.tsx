@@ -24,10 +24,11 @@ export default function SensorRetrievalPage() {
         notifications={[]}
         onSelectNotification={() => {}}
         connectionStatus={connectionStatus} // 👈 new prop
-        tabs={[
+       /*  tabs={[
           { title: 'Individual', path: '/sensor-retrieval/individual', icon: '📍' },
           { title: 'Categories', path: '/sensor-retrieval/categories', icon: '📊' },
         ]}
+           */
       />
 
       <main style={{ flex: 1 }}>

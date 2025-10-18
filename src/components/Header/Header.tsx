@@ -78,7 +78,7 @@ const Header: React.FC<HeaderProps> = ({
                   }
                 >
                   {connectionStatus === 'connected'
-                    ? '🟢 Drone Live'
+                    ? '🟢 Drone Flying'
                     : connectionStatus === 'connecting'
                     ? '🟡 Connecting...'
                     : '🔴 Disconnected'}

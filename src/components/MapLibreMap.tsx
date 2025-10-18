@@ -129,7 +129,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
   const enrouteRafRef = useRef<number | null>(null);
   const pegmanMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const lastScanTsRef = useRef(0);
-  const SCAN_INTERVAL_MS = 300; // scan every 0.3 seconds
+  const SCAN_INTERVAL_MS = 120; // scan every 0.3 seconds
 
   // ✅ all unique labels we’ve actually received so far
   const detectedLabels = React.useMemo(() => {
@@ -178,6 +178,7 @@ const lastScannedUpdateRef = useRef(0); // used to throttle map updates
       return next;
     });
   };
+  const CAMERA_OFFSET_DEG = 360; // 0 = front, 180 = back, etc.
 
   useEffect(() => {
     missionActiveRef.current = missionActive;
@@ -239,10 +240,18 @@ m.addLayer({
   type: "fill",
   source: "scanned",
   paint: {
-    "fill-color": "#ff6b00",   // orange
-    "fill-opacity": 0.35,
-  },
+    "fill-color": "#ff6b00",
+    "fill-opacity": [
+      'interpolate', ['linear'],
+      // 🔸 Compute how old the scan is (in seconds)
+      ['-', ['to-number', ['get', 'scannedAt']], ['number', ['/', ['to-number', ['get', 'now']], 1], 0]],
+      0, 0.6,        // just scanned → bright
+      60000, 0.2,    // older than 60s → faded
+      120000, 0.05   // older than 2min → barely visible
+    ]
+  }
 });
+
 
       m.addSource('remaining', {
         type: 'geojson',
@@ -1123,54 +1132,51 @@ m.addLayer({
         enrouteRafRef.current = null;
       }
 
-      const raf = (now: number) => {
-        if (!missionActiveRef.current) return; // stop only if mission ended
-        if (!droneMarkerRef.current) return;
-        if (startTs === null) startTs = now;
+      // Add this above raf (outside startMission)
+let lastScanTime = 0;
+let lastUpdateTime = 0;
+const PATH_UPDATE_MS = 100;   // 10 FPS is enough
 
-        const t = Math.min((now - startTs) / transitMs, 1);
-        const distKm = totalDistKm * t;
+const raf = (now: number) => {
+  if (!missionActiveRef.current) return;
+  if (!droneMarkerRef.current) return;
+  if (startTs === null) startTs = now;
 
-        const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
-        const cur = pt.geometry.coordinates as Coord;
+  const t = Math.min((now - startTs) / transitMs, 1);
+  const distKm = totalDistKm * t;
+  const pt = turf.along(toTarget, distKm, { units: "kilometers" }) as Feature<Point>;
+  const cur = pt.geometry.coordinates as Coord;
 
-        // 🟢 Always update lines (covered + remaining)
-        const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
-        const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
-        (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
-        (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
+  // Smooth marker motion
+  droneMarkerRef.current.setLngLat(cur);
 
-        // 🧭 Move marker ONLY when live
-        if (!isReplayModeRef.current) {
-          droneMarkerRef.current.setLngLat(cur);
-        }
-// 🟠 record camera FOV as drone moves
-const nowMs = performance.now();
-if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
-  lastScanTsRef.current = nowMs;
-  const heading = turf.bearing(cur, center);
-  recordScanAt(mapRef.current!, cur, heading);
-}
+  // Only do heavy turf + setData every PATH_UPDATE_MS
+  if (now - lastUpdateTime > PATH_UPDATE_MS) {
+    lastUpdateTime = now;
 
-        // 🔁 Continue recording path (optional)
-        setDronePath((prev) => {
-          const n = Date.now();
-          const last = prev.at(-1);
-          if (!last || turf.distance(last.coord, cur, { units: 'meters' }) > 2) {
-            return [...prev, { ts: n, coord: cur }];
-          }
-          return prev;
-        });
+    const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
+    const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
+    (mapRef.current!.getSource("covered") as mapboxgl.GeoJSONSource).setData(covered);
+    (mapRef.current!.getSource("remaining") as mapboxgl.GeoJSONSource).setData(remaining);
 
-        if (t < 1) {
-          enrouteRafRef.current = requestAnimationFrame(raf);
-        } else {
-          console.log('✅ Drone arrived at target');
-          setInTransit(false);
-          inTransitRef.current = false;
-          startOrbit(center);
-        }
-      };
+    // Update FOV even less often (~6–8 fps)
+    if (now - lastScanTime > 150) {
+      lastScanTime = now;
+      const heading = turf.bearing(origin.coord, cur);
+      recordScanAt(mapRef.current!, cur, heading + CAMERA_OFFSET_DEG);
+    }
+  }
+
+  if (t < 1) {
+    enrouteRafRef.current = requestAnimationFrame(raf);
+  } else {
+    setInTransit(false);
+    inTransitRef.current = false;
+    startOrbit(center);
+  }
+};
+
+
 
       // 🔁 Save ID so we can cancel later
       enrouteRafRef.current = requestAnimationFrame(raf);
@@ -1257,15 +1263,11 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
         droneMarkerRef.current.setLngLat(cur);
       }
   
-      // ✅ FIX #2: compute heading using gimbalTarget (React state) or center fallback
-      const heading = turf.bearing(cur, gimbalTarget || center);
-  
       // 🟠 record camera FOV every few hundred ms
-      const nowMs = performance.now();
-      if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
-        lastScanTsRef.current = nowMs;
-        recordScanAt(m, cur, heading);
-      }
+      // 🟠 Record camera FOV every frame — synced with drone
+      const heading = turf.bearing(cur, center);
+    recordScanAt(mapRef.current!, cur, heading + 180); // +180 if camera looks backward
+
   
       // Continue recording the live path regardless of replay mode
       setDronePath((prev) => {
@@ -1284,13 +1286,7 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
   };
   
 
-  const stopOrbit = () => {
-    if (orbitTimerRef.current) {
-      clearTimeout(orbitTimerRef.current);
-      orbitTimerRef.current = null;
-    }
-  };
-
+  
   const handleTimelineSeek = (ts: number) => {
     if (dronePath.length < 2 || !mapRef.current) return;
 
@@ -1360,52 +1356,6 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
     updateEventMarkers(visibleEvents);
   };
 
-  const resumeEnrouteFlight = () => {
-    if (!missionGeom || !originPortRef.current) return;
-
-    const origin = originPortRef.current;
-    const center = missionGeom.center;
-    const toTarget = turf.lineString([origin.coord, center]) as Feature<LineString>;
-    const totalDistKm = turf.length(toTarget, { units: 'kilometers' });
-    const totalDistM = totalDistKm * 1000;
-    const transitMs = (totalDistM / DRONE_SPEED_MPS) * 1000;
-
-    let startTs: number | null = null;
-    if (enrouteRafRef.current) cancelAnimationFrame(enrouteRafRef.current);
-
-    const raf = (now: number) => {
-      if (!missionActiveRef.current) return;
-      if (isReplayModeRef.current) return;
-      if (!droneMarkerRef.current) return;
-      if (startTs === null) startTs = now;
-
-      const last = dronePath.at(-1)!;
-      const coveredDistKm = turf.distance(origin.coord, last.coord, { units: 'kilometers' });
-      const remainingDistKm = Math.max(0, totalDistKm - coveredDistKm);
-      const t = Math.min((now - startTs) / transitMs, 1);
-      const curDist = coveredDistKm + remainingDistKm * t;
-
-      const pt = turf.along(toTarget, curDist, { units: 'kilometers' }) as Feature<Point>;
-      const cur = pt.geometry.coordinates as Coord;
-      droneMarkerRef.current.setLngLat(cur);
-
-      const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
-      const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
-      (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
-      (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
-
-      if (t < 1) {
-        enrouteRafRef.current = requestAnimationFrame(raf);
-      } else {
-        console.log('✅ Reached target center — starting orbit');
-        setInTransit(false);
-        inTransitRef.current = false;
-        startOrbit(center);
-      }
-    };
-
-    enrouteRafRef.current = requestAnimationFrame(raf);
-  };
 
   const goLive = () => {
     console.log('🔴 Returning to LIVE mode...');
@@ -1475,104 +1425,77 @@ if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
     });
   };
 // 🧩 Place these at the top of your component (near other refs)
-// 🧭 Optimized version of recordScanAt()
 function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
   if (!m) return;
 
-  const MAX_SCANS = 50;
-  const now = performance.now();
+  const MAX_SCANS = 80;
+  const now = Date.now();
 
-  // 🧹 Initialize scannedRef if missing
-  if (!scannedRef.current || !Array.isArray(scannedRef.current.features)) {
-    scannedRef.current = { type: "FeatureCollection", features: [] };
+  // 🧹 Initialize scannedRef safely
+  if (
+    !scannedRef.current ||
+    !Array.isArray(scannedRef.current.features)
+  ) {
+    scannedRef.current = {
+      type: "FeatureCollection",
+      features: [] as Feature<Polygon>[],
+    };
   }
 
-  // 1️⃣ Create and simplify FOV polygon
-  const fov = makeFovRect(position, heading) as Feature<Polygon, any>;
-  const simplified = turf.simplify(fov, { tolerance: 10, highQuality: false }); // ⬆️ more aggressive simplification
-  if (!simplified.properties) simplified.properties = {};
+  // 🟧 Create the new FOV polygon
+  const fov = makeFovRect(position, heading);
+  if (!fov.properties) fov.properties = {};
 
-  const timestamp = Date.now();
   const videoTime = videoRef.current?.getCurrentTime?.() ?? 0;
   const confidence = +(0.8 + Math.random() * 0.2).toFixed(2);
   const snapshot = videoRef.current?.captureFrame?.() ?? null;
 
-  // 2️⃣ Assign safe metadata
-  Object.assign(simplified.properties, {
-    id: `scan-${timestamp}`,
-    scannedAt: timestamp,
+  Object.assign(fov.properties, {
+    id: `scan-${now}`,
+    scannedAt: now,
     coord: position,
     heading,
-    videoUrl: DroneEnrouteVideo,
-    startTimeSec: videoTime,
     confidence,
     thumbnail: snapshot,
+    "fill-opacity": 1.0, // newest = brightest
   });
 
-  // 3️⃣ Keep recent scans only
-  const scans = scannedRef.current.features;
+  // 🧩 Keep only last N scans
+  const scans = scannedRef.current.features as Feature<Polygon>[];
   if (scans.length >= MAX_SCANS) scans.shift();
-  scans.push(simplified);
+  scans.push(fov);
 
-  // 4️⃣ Throttle orange zone update (every 2s)
-if (now - (lastScannedUpdateRef.current || 0) > 2000) {
-  lastScannedUpdateRef.current = now;
+  // 🌓 Fade older scans
+  const faded: Feature<Polygon>[] = scans.map((f) => {
+    if (!f.properties) f.properties = {};
+    const scannedAt = (f.properties.scannedAt as number) ?? now;
+    const age = now - scannedAt;
+    const fade = Math.max(0.15, 1 - age / 5000); // 5s fade
+    f.properties["fill-opacity"] = fade;
+    return f;
+  });
 
-  try {
-    const slice = scans.slice(-5) as Feature<Polygon>[];
-    if (slice.length === 0) return;
+  // 🟠 Update the orange "scanned" source
+  const collection: FeatureCollection<Polygon> = {
+    type: "FeatureCollection",
+    features: faded,
+  };
 
-    // 1️⃣ Combine the last few scans visually
-    const recentCollection = turf.featureCollection(slice);
-    const buffered = turf.buffer(recentCollection, 5, { units: "meters" }); // small overlap smoothing
+  const src = m.getSource("scanned") as mapboxgl.GeoJSONSource | undefined;
+  if (src) src.setData(collection);
+  scannedRef.current = collection;
 
-    // 2️⃣ Merge with the cumulative scannedRef data — keep history!
-    const mergedCollection: FeatureCollection<Polygon | MultiPolygon> = {
-      type: "FeatureCollection",
-      features: [
-        // Filter to only polygons (safety for TS + runtime)
-        ...scannedRef.current.features.filter(
-          (f): f is Feature<Polygon | MultiPolygon> =>
-            f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
-        ),
-        ...((buffered?.features.filter(
-          (f): f is Feature<Polygon | MultiPolygon> =>
-            f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
-        ) ?? []) as Feature<Polygon | MultiPolygon>[]),
-      ],
-    };
-    
-    // 3️⃣ Simplify merged geometry for performance
-    const simplified = turf.simplify(mergedCollection, {
-      tolerance: 8,
-      highQuality: false,
-    }) as FeatureCollection<Polygon | MultiPolygon>;
-
-    // 4️⃣ Update the orange scanned layer
-    (m.getSource("scanned") as mapboxgl.GeoJSONSource)?.setData(simplified);
-
-    // 5️⃣ Persist new geometry in ref
-    scannedRef.current = simplified;
-  } catch (err) {
-    console.warn("⚠️ turf.buffer/simplify failed — fallback to direct setData", err);
-    (m.getSource("scanned") as mapboxgl.GeoJSONSource)?.setData(
-      scannedRef.current as FeatureCollection
-    );
-  }
-}
-
-
-  // 5️⃣ Always update live green FOV footprint
+  // 🟢 Update live current FOV (sensor beam)
   const fovSrc = m.getSource("sensorFov") as mapboxgl.GeoJSONSource | undefined;
-  if (fovSrc) fovSrc.setData(simplified);
+  if (fovSrc) fovSrc.setData(fov);
 
-  // 6️⃣ Persist to React state
+  // 🧠 Persist to React state for side panel
   setScanClips((prev) => {
-    if (prev.some((clip) => clip.id === simplified.properties.id)) return prev;
+    if (prev.some((clip) => clip.id === fov.properties!.id)) return prev;
     return [
       ...prev,
       {
-        id: simplified.properties.id,
+        id: fov.properties!.id as string,
         coord: position,
         heading,
         startTimeSec: videoTime,
@@ -1588,7 +1511,6 @@ if (now - (lastScannedUpdateRef.current || 0) > 2000) {
     )}°), confidence ${(confidence * 100).toFixed(0)}%`
   );
 }
-
 
 function ensureSourceAndLayer(map: mapboxgl.Map) {
   const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -1627,21 +1549,29 @@ function ensureSourceAndLayer(map: mapboxgl.Map) {
       paint: { "line-color": "#64748b", "line-width": 3, "line-dasharray": [2, 2] },
     });
   }
+}  
+  
+function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
+  const halfW = 50;    // half-width (total width 100m)
+  const depth = 200;   // forward distance of camera FOV
+
+  // compute left/right edges relative to heading
+  const left = turf.destination(center, halfW, heading - 90, { units: "meters" })
+    .geometry.coordinates as Coord;
+  const right = turf.destination(center, halfW, heading + 90, { units: "meters" })
+    .geometry.coordinates as Coord;
+
+  // extend forward (in front of the drone)
+  const frontLeft = turf.destination(left, depth, heading, { units: "meters" })
+    .geometry.coordinates as Coord;
+  const frontRight = turf.destination(right, depth, heading, { units: "meters" })
+    .geometry.coordinates as Coord;
+
+  return turf.polygon([[left, frontLeft, frontRight, right, left]], {
+    scannedAt: Date.now(),
+  });
 }
 
-  
-  
-  function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
-    const halfW = 100 / 2;   // 100 m wide
-    const backLeft = turf.destination(center, halfW, heading - 90, { units: 'meters' }).geometry.coordinates as Coord;
-    const backRight = turf.destination(center, halfW, heading + 90, { units: 'meters' }).geometry.coordinates as Coord;
-    const frontLeft = turf.destination(backLeft, 200, heading, { units: "meters" }).geometry.coordinates as Coord;
-    const frontRight = turf.destination(backRight, 200, heading, { units: "meters" }).geometry.coordinates as Coord;
-    return turf.polygon([[backLeft, frontLeft, frontRight, backRight, backLeft]], {
-      scannedAt: Date.now(),
-    });
-  }
-  
 
   const nearestPort = (pt: Coord): DronePort => {
     return initialDronePorts.reduce((best, p) => {
