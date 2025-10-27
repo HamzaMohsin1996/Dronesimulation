@@ -1,19 +1,21 @@
 import React, { useState, useMemo } from 'react';
 import type { DetectionEvent } from '../shared/DetectionEvent';
 
-const iconMap: Record<string, { icon: string; name: string }> = {
-  fire: { icon: '🔥', name: 'Fire' },
-  chemical: { icon: '🧪', name: 'Chemical' },
-  snapshot: { icon: '📸', name: 'Snapshot' },
-  person: { icon: '👤', name: 'Person' },
-  car: { icon: '🚗', name: 'Car' },
-  truck: { icon: '🚚', name: 'Truck' },
-  animal: { icon: '🐾', name: 'Animal' },
+// 🔹 Icon + color mapping for event types
+const iconMap: Record<string, { icon: string; name: string; color: string }> = {
+  fire: { icon: '🔥', name: 'Fire', color: '#ef4444' },
+  person: { icon: '🧍', name: 'Person', color: '#2563eb' },
+  chemical: { icon: '🧪', name: 'Chemical', color: '#a855f7' },
+  blocked_road: { icon: '🚧', name: 'Blocked Road', color: '#f59e0b' },
+  car: { icon: '🚗', name: 'Car', color: '#6b7280' },
+  truck: { icon: '🚚', name: 'Truck', color: '#6b7280' },
+  animal: { icon: '🐾', name: 'Animal', color: '#6b7280' },
+  snapshot: { icon: '📸', name: 'Snapshot', color: '#6b7280' },
 };
 
 function formatEvent(ev: DetectionEvent) {
-  const entry = iconMap[ev.label] ?? { icon: '❓', name: ev.label };
-  return `${entry.icon} ${entry.name}`;
+  const entry = iconMap[ev.label] ?? { icon: '❓', name: ev.label, color: '#6b7280' };
+  return entry;
 }
 
 interface EventFeedProps {
@@ -21,7 +23,10 @@ interface EventFeedProps {
   missionActive: boolean;
   unreadCount: number;
   onSelect: (ev: DetectionEvent) => void;
-  onMarkRead: (id: string) => void;
+  onLaunchMission: () => void;
+  onReturnToBase: () => void;
+  missionInfo?: { title: string; location: string };
+  uavStatus?: { battery: number; altitude: number; connected: boolean };
 }
 
 export default function EventFeed({
@@ -29,101 +34,133 @@ export default function EventFeed({
   missionActive,
   unreadCount,
   onSelect,
+  onLaunchMission,
+  onReturnToBase,
+  missionInfo,
+  uavStatus,
 }: EventFeedProps) {
   const [filter, setFilter] = useState<string>('all');
 
-  // ✅ Collect unique labels from detections
+  // 🔹 Unique event labels
   const detectedLabels = useMemo(() => {
     const unique = new Set(events.map((e) => e.label));
     return Array.from(unique);
   }, [events]);
 
-  // ✅ Filter feed
-  const filtered = events
-    .slice()
-    .filter((ev) => filter === 'all' || ev.label === filter)
-    .sort((a, b) => b.ts - a.ts);
+  // 🔹 Group detections by label
+  const grouped = useMemo(() => {
+    const groups: Record<string, DetectionEvent[]> = {};
+    events.forEach((e) => {
+      const key = e.label;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(e);
+    });
+    return Object.entries(groups).map(([key, list]) => ({
+      key,
+      label: list[0].label,
+      count: list.length,
+      latest: list[0],
+    }));
+  }, [events]);
+
+  // 🔹 Simple auto-summary
+  const situationSummary = useMemo(() => {
+    const hasFire = events.some((e) => e.label === 'fire');
+    const hasPeople = events.some((e) => e.label === 'person');
+    const hasBlockedRoad = events.some((e) => e.label === 'blocked_road');
+
+    const summary: string[] = [];
+    if (hasFire) summary.push('🔥 Fire spreading north (wind NE)');
+    if (hasPeople) summary.push('🧍 Persons near hazard zone');
+    if (hasBlockedRoad) summary.push('🚧 South road blocked — reroute west');
+    if (summary.length === 0) summary.push('✅ Scene stable — no new hazards detected');
+    return summary;
+  }, [events]);
+
+  const filteredGroups = filter === 'all' ? grouped : grouped.filter((g) => g.label === filter);
 
   return (
     <aside
       style={{
         width: 340,
         borderRight: '1px solid #e5e7eb',
-        background: '#f9fafb',
+        background: '#f8fafc',
         display: 'flex',
         flexDirection: 'column',
-        fontFamily: 'system-ui,sans-serif',
+        fontFamily: 'system-ui, sans-serif',
       }}
     >
-      {/* ---- Header ---- */}
+      {/* ---- Mission Header ---- */}
       <header
         style={{
+          background: '#1e293b',
+          color: '#fff',
           padding: '1rem',
-          borderBottom: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: '#fff',
-          gap: '0.75rem',
+          borderBottom: '1px solid #e2e8f0',
         }}
       >
-        <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Event Feed</h2>
+        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+          {missionActive ? '🚁 UAV-1 In Flight' : '🛰️ UAV Standby'}
+        </h2>
 
-        {/* ✅ Only show filter dropdown if we actually have detections */}
-        {detectedLabels.length > 0 && (
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            style={{
-              padding: '4px 8px',
-              borderRadius: 6,
-              border: '1px solid #d1d5db',
-              fontSize: '0.85rem',
-              background: '#f9fafb',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="all">All</option>
-            {detectedLabels.map((label) => {
-              const entry = iconMap[label] ?? { icon: '❓', name: label };
-              return (
-                <option key={label} value={label}>
-                  {entry.icon} {entry.name}
-                </option>
-              );
-            })}
-          </select>
+        {missionInfo && (
+          <p style={{ fontSize: '0.85rem', margin: '4px 0' }}>
+            🔥 {missionInfo.title}
+            <br />
+            📍 {missionInfo.location}
+          </p>
         )}
 
-        {unreadCount > 0 && (
-          <span
+        {uavStatus && (
+          <p style={{ fontSize: '0.8rem', color: '#cbd5e1', margin: '2px 0' }}>
+            🔋 {uavStatus.battery}% | ⬆️ {uavStatus.altitude} m |{' '}
+            {uavStatus.connected ? '🟢 Connected' : '🔴 Disconnected'}
+          </p>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button
+            onClick={onLaunchMission}
+            disabled={missionActive}
             style={{
+              flex: 1,
               background: '#0ea5e9',
               color: '#fff',
-              borderRadius: '999px',
-              padding: '2px 8px',
-              fontSize: 12,
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 8px',
+              cursor: missionActive ? 'not-allowed' : 'pointer',
               fontWeight: 600,
             }}
           >
-            {unreadCount} NEW
-          </span>
-        )}
+            🚀 Launch
+          </button>
+          <button
+            onClick={onReturnToBase}
+            disabled={!missionActive}
+            style={{
+              flex: 1,
+              background: '#ef4444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 8px',
+              cursor: missionActive ? 'pointer' : 'not-allowed',
+              fontWeight: 600,
+            }}
+          >
+            🔁 Return
+          </button>
+        </div>
       </header>
 
-      {/* ---- Scrollable list ---- */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '0.75rem',
-        }}
-      >
-        {filtered.length === 0 ? (
+      {/* ---- Event Feed ---- */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0.75rem' }}>
+        {filteredGroups.length === 0 ? (
           <div
             style={{
               textAlign: 'center',
-              color: '#6b7280',
+              color: '#64748b',
               marginTop: '2rem',
               fontSize: '0.95rem',
               lineHeight: 1.4,
@@ -133,52 +170,86 @@ export default function EventFeed({
               <>
                 <strong>No mission launched</strong>
                 <br />
-                Select a mission mode and start to begin detecting events.
+                Select a mission mode and start detecting events.
               </>
             ) : (
               <>
-                <strong>Mission launched</strong>
+                <strong>Mission active</strong>
                 <br />
                 Waiting for incoming detections…
               </>
             )}
           </div>
         ) : (
-          filtered.map((ev) => (
-            <div
-              key={ev.id}
-              onClick={() => onSelect(ev)}
-              style={{
-                background: ev.seen ? '#fff' : '#e0f2fe',
-                marginBottom: 10,
-                padding: '12px',
-                borderRadius: 10,
-                boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-              }}
-            >
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
-                {formatEvent(ev)}
-              </div>
-              <div style={{ fontSize: 12, color: '#475569' }}>
-                {new Date(ev.ts).toLocaleTimeString()} • {(ev.score * 100).toFixed(0)}% confidence
-              </div>
-              {ev.thumbnail && (
-                <img
-                  src={ev.thumbnail}
-                  alt="snapshot"
+          filteredGroups.map((g) => {
+            const entry = formatEvent(g.latest);
+            return (
+              <div
+                key={g.key}
+                onClick={() => onSelect(g.latest)}
+                style={{
+                  background: '#fff',
+                  marginBottom: 10,
+                  padding: '12px',
+                  borderRadius: 10,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+                  borderLeft: `4px solid ${entry.color}`,
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}
+              >
+                <div
                   style={{
-                    marginTop: 6,
-                    width: '100%',
-                    borderRadius: 6,
+                    fontSize: 16,
+                    fontWeight: 700,
+                    marginBottom: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
-                />
-              )}
-            </div>
-          ))
+                >
+                  <span>{entry.icon}</span>
+                  {entry.name}{' '}
+                  {g.count > 1 && (
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>({g.count})</span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 12, color: '#475569' }}>
+                  {new Date(g.latest.ts).toLocaleTimeString()} • {(g.latest.score * 100).toFixed(0)}
+                  % confidence
+                </div>
+
+                {g.latest.thumbnail && (
+                  <img
+                    src={g.latest.thumbnail}
+                    alt="snapshot"
+                    style={{ marginTop: 6, width: '100%', borderRadius: 6 }}
+                  />
+                )}
+              </div>
+            );
+          })
         )}
       </div>
+
+      {/* ---- Situation Summary ---- */}
+      <footer
+        style={{
+          background: '#fff',
+          borderTop: '1px solid #e5e7eb',
+          padding: '0.75rem 1rem',
+        }}
+      >
+        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+          🧠 Situation Summary
+        </h4>
+        <ul style={{ margin: 0, paddingLeft: 16, fontSize: '0.8rem', color: '#475569' }}>
+          {situationSummary.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </footer>
     </aside>
   );
 }

@@ -31,13 +31,13 @@
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
- "scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "preview": "vite preview",
-  "predeploy": "npm run build",
-  "deploy": "gh-pages -d dist"
-},
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
+  },
   "eslintConfig": {
     "extends": [
       "react-app",
@@ -57,11 +57,15 @@
     ]
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.14",
     "@types/geojson": "^7946.0.16",
     "@types/mapbox__mapbox-gl-draw": "^1.4.9",
     "@types/node": "^22.17.2",
     "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.21",
     "gh-pages": "^6.3.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.14",
     "vite": "^6.3.5",
     "vite-plugin-svgr": "^4.3.0"
   }

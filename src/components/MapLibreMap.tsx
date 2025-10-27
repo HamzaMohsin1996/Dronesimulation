@@ -24,7 +24,7 @@ import { iconMap } from '../shared/iconMap';
 import RecapPanel from './RecapPanel';
 import { useReengagement } from './useReengagement';
 import PegmanControl from './PegmanIcon';
-
+import Sidebar from './Sidebar';
 
 // ---------------- Config ----------------
 type Coord = [number, number];
@@ -139,8 +139,8 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
   }, [allEvents]);
   const scannedRef = useRef<FeatureCollection>({ type: 'FeatureCollection', features: [] });
   // 🧠 Performance tuning constants
-const MAX_SCANS = 200; // keep last 200 scan footprints only
-const lastScannedUpdateRef = useRef(0); // used to throttle map updates
+  const MAX_SCANS = 200; // keep last 200 scan footprints only
+  const lastScannedUpdateRef = useRef(0); // used to throttle map updates
 
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const [videoExpanded, setVideoExpanded] = useState(false);
@@ -164,9 +164,8 @@ const lastScannedUpdateRef = useRef(0); // used to throttle map updates
   }, [inTransit]);
   const [gimbalTarget, setGimbalTarget] = useState<Coord | null>(null);
   const [scanClips, setScanClips] = useState<
-  { id: string; coord: Coord; startTimeSec: number; confidence: number }[]
->([]);
-
+    { id: string; coord: Coord; startTimeSec: number; confidence: number }[]
+  >([]);
 
   // const [streamStart] = useState(() => Date.now());
   const [streamStart, setStreamStart] = useState<number | null>(null);
@@ -217,41 +216,48 @@ const lastScannedUpdateRef = useRef(0); // used to throttle map updates
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
-      
-      const beforeId = m.getLayer("path-covered") ? "path-covered" : undefined;
+
+      const beforeId = m.getLayer('path-covered') ? 'path-covered' : undefined;
       m.addLayer(
         {
-          id: "coverage-zone",
-          type: "fill",
-          source: "coverage-zone",
-          paint: { "fill-color": "#ff9500", "fill-opacity": 0.15 },
+          id: 'coverage-zone',
+          type: 'fill',
+          source: 'coverage-zone',
+          paint: { 'fill-color': '#ff9500', 'fill-opacity': 0.15 },
         },
         beforeId // ✅ only insert before if layer exists
       );
-      
+
       // --- Orange cumulative scanned zone ---
-m.addSource("scanned", {
-  type: "geojson",
-  data: { type: "FeatureCollection", features: [] },
-});
+      m.addSource('scanned', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
 
-m.addLayer({
-  id: "scanned-fill",
-  type: "fill",
-  source: "scanned",
-  paint: {
-    "fill-color": "#ff6b00",
-    "fill-opacity": [
-      'interpolate', ['linear'],
-      // 🔸 Compute how old the scan is (in seconds)
-      ['-', ['to-number', ['get', 'scannedAt']], ['number', ['/', ['to-number', ['get', 'now']], 1], 0]],
-      0, 0.6,        // just scanned → bright
-      60000, 0.2,    // older than 60s → faded
-      120000, 0.05   // older than 2min → barely visible
-    ]
-  }
-});
-
+      m.addLayer({
+        id: 'scanned-fill',
+        type: 'fill',
+        source: 'scanned',
+        paint: {
+          'fill-color': '#ff6b00',
+          'fill-opacity': [
+            'interpolate',
+            ['linear'],
+            // 🔸 Compute how old the scan is (in seconds)
+            [
+              '-',
+              ['to-number', ['get', 'scannedAt']],
+              ['number', ['/', ['to-number', ['get', 'now']], 1], 0],
+            ],
+            0,
+            0.6, // just scanned → bright
+            60000,
+            0.2, // older than 60s → faded
+            120000,
+            0.05, // older than 2min → barely visible
+          ],
+        },
+      });
 
       m.addSource('remaining', {
         type: 'geojson',
@@ -318,31 +324,31 @@ m.addLayer({
       });
 
       // --- Add your drone port icons as markers ---
-           // --- Add your drone port icons as markers ---
-           initialDronePorts.forEach(({ coord }) => {
-            const el = document.createElement('div');
-            el.style.width = '30px';
-            el.style.height = '30px';
-            el.style.transform = 'translate(-50%,-50%)';
-            const img = document.createElement('img');
-            img.src = DronePortIcon;
-            img.alt = 'Drone Port';
-            img.style.width = '100%';
-            img.style.height = '100%';
-            img.style.objectFit = 'contain';
-            el.appendChild(img);
-            new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
-          });
-    
-          // ✅ Make orange scanned area always appear on top
-          if (m.getLayer("scanned-fill")) {
-            try {
-              m.moveLayer("scanned-fill"); // brings it above all others
-            } catch (err) {
-              console.warn("⚠️ Could not move scanned-fill:", err);
-            }
-          }
-        });
+      // --- Add your drone port icons as markers ---
+      initialDronePorts.forEach(({ coord }) => {
+        const el = document.createElement('div');
+        el.style.width = '30px';
+        el.style.height = '30px';
+        el.style.transform = 'translate(-50%,-50%)';
+        const img = document.createElement('img');
+        img.src = DronePortIcon;
+        img.alt = 'Drone Port';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        el.appendChild(img);
+        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
+      });
+
+      // ✅ Make orange scanned area always appear on top
+      if (m.getLayer('scanned-fill')) {
+        try {
+          m.moveLayer('scanned-fill'); // brings it above all others
+        } catch (err) {
+          console.warn('⚠️ Could not move scanned-fill:', err);
+        }
+      }
+    });
 
     mapRef.current = m;
     console.log('✅ Mapbox loaded');
@@ -740,43 +746,43 @@ m.addLayer({
     console.log('🔴 Updating pinnedEvents source with', fc.features.length, 'features');
     src.setData(fc);
   }, [allEvents, activeFilters]);
- 
+
   const setMissionTargetOnMap = (opts: {
     polygon?: Feature<Polygon | MultiPolygon>;
     line?: Feature<LineString>;
   }) => {
     const m = mapRef.current!;
     const features: Feature[] = [];
-  
+
     if (opts.polygon) features.push(opts.polygon);
     if (opts.line) features.push(opts.line);
-  
+
     // --- mission geometry ---
     (m.getSource('missionGeom') as mapboxgl.GeoJSONSource).setData({
       type: 'FeatureCollection',
       features,
     });
-  
+
     // --- reset paths ---
     (m.getSource('covered') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
     });
-  
+
     (m.getSource('remaining') as mapboxgl.GeoJSONSource).setData({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: [] },
       properties: {},
     });
-  
+
     // --- coverage zone ---
     const coverageSource = m.getSource('coverage-zone') as mapboxgl.GeoJSONSource;
-  
+
     if (opts.line && opts.line.geometry?.coordinates?.length > 1) {
       // Buffer the scanned line to visualize coverage area
       const buffered = turf.buffer(opts.line, 30, { units: 'meters' });
-  
+
       if (buffered) {
         coverageSource.setData(buffered as Feature<Polygon | MultiPolygon>);
       } else {
@@ -794,10 +800,6 @@ m.addLayer({
       } as FeatureCollection);
     }
   };
-  
-  
-  
-  
 
   const startCircleScan = (center: Coord, radiusM = DEFAULT_SCAN_RADIUS_M) => {
     const steps = 360; // number of points around the ring
@@ -874,52 +876,48 @@ m.addLayer({
       features: [scanLine],
     });
   };
-  
 
   const handlePegmanDrop = useCallback((lng: number, lat: number) => {
     const m = mapRef.current;
     if (!m) return;
-  
+
     const dropped = turf.point([lng, lat]);
     const match = scannedRef.current.features.find((f) =>
       turf.booleanPointInPolygon(dropped, f as Feature<Polygon>)
     );
-  
+
     if (!match) {
-      new mapboxgl.Popup()
-        .setLngLat([lng, lat])
-        .setHTML("🚫 Area not scanned yet")
-        .addTo(m);
+      new mapboxgl.Popup().setLngLat([lng, lat]).setHTML('🚫 Area not scanned yet').addTo(m);
       return;
     }
-  
+
     const { startTimeSec, confidence } = match.properties as any;
     const snapshot = videoRef.current?.captureFrame?.();
-  
+
     // Highlight polygon
-  // 🧹 Clean up any existing highlight before adding new one
-if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
-if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
+    // 🧹 Clean up any existing highlight before adding new one
+    if (m.getLayer('highlight-fov')) m.removeLayer('highlight-fov');
+    if (m.getSource('highlight-fov')) m.removeSource('highlight-fov');
 
-// 🆕 Add a fresh source + layer
-m.addSource("highlight-fov", { type: "geojson", data: match });
-m.addLayer({
-  id: "highlight-fov",
-  type: "line",
-  source: "highlight-fov",
-  paint: { "line-color": "#ff0", "line-width": 3 },
-});
+    // 🆕 Add a fresh source + layer
+    m.addSource('highlight-fov', { type: 'geojson', data: match });
+    m.addLayer({
+      id: 'highlight-fov',
+      type: 'line',
+      source: 'highlight-fov',
+      paint: { 'line-color': '#ff0', 'line-width': 3 },
+    });
 
-  
     // Fade highlight after 3s
     setTimeout(() => {
-      if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
+      if (m.getLayer('highlight-fov')) m.removeLayer('highlight-fov');
     }, 3000);
-  
+
     // Show popup with snapshot
     new mapboxgl.Popup()
       .setLngLat([lng, lat])
-      .setHTML(`
+      .setHTML(
+        `
         <div style="width:220px">
           <img src="${snapshot}" style="width:100%;border-radius:6px" />
           <div style="font-size:13px;margin-top:6px">
@@ -931,12 +929,13 @@ m.addLayer({
             ▶️ Replay 5s
           </button>
         </div>
-      `)
+      `
+      )
       .addTo(m);
-  
+
     // Attach handler for replay
     setTimeout(() => {
-      const btn = document.getElementById("playReplayBtn");
+      const btn = document.getElementById('playReplayBtn');
       if (btn) {
         btn.onclick = () => {
           setVideoExpanded(true);
@@ -947,10 +946,6 @@ m.addLayer({
       }
     }, 500);
   }, []);
-  
-  
-  
-  
 
   const handleDetectionMessage = (msg: MessageEvent) => {
     try {
@@ -1075,7 +1070,6 @@ m.addLayer({
     // ✅ Prime sources only if this is a *new mission*, not a resume
     const remainingSrc = mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource;
     const coveredSrc = mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource;
-    
 
     if (!isResumingRef.current) {
       console.log('🟢 New mission — resetting path layers');
@@ -1133,50 +1127,48 @@ m.addLayer({
       }
 
       // Add this above raf (outside startMission)
-let lastScanTime = 0;
-let lastUpdateTime = 0;
-const PATH_UPDATE_MS = 100;   // 10 FPS is enough
+      let lastScanTime = 0;
+      let lastUpdateTime = 0;
+      const PATH_UPDATE_MS = 100; // 10 FPS is enough
 
-const raf = (now: number) => {
-  if (!missionActiveRef.current) return;
-  if (!droneMarkerRef.current) return;
-  if (startTs === null) startTs = now;
+      const raf = (now: number) => {
+        if (!missionActiveRef.current) return;
+        if (!droneMarkerRef.current) return;
+        if (startTs === null) startTs = now;
 
-  const t = Math.min((now - startTs) / transitMs, 1);
-  const distKm = totalDistKm * t;
-  const pt = turf.along(toTarget, distKm, { units: "kilometers" }) as Feature<Point>;
-  const cur = pt.geometry.coordinates as Coord;
+        const t = Math.min((now - startTs) / transitMs, 1);
+        const distKm = totalDistKm * t;
+        const pt = turf.along(toTarget, distKm, { units: 'kilometers' }) as Feature<Point>;
+        const cur = pt.geometry.coordinates as Coord;
 
-  // Smooth marker motion
-  droneMarkerRef.current.setLngLat(cur);
+        // Smooth marker motion
+        droneMarkerRef.current.setLngLat(cur);
 
-  // Only do heavy turf + setData every PATH_UPDATE_MS
-  if (now - lastUpdateTime > PATH_UPDATE_MS) {
-    lastUpdateTime = now;
+        // Only do heavy turf + setData every PATH_UPDATE_MS
+        if (now - lastUpdateTime > PATH_UPDATE_MS) {
+          lastUpdateTime = now;
 
-    const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
-    const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
-    (mapRef.current!.getSource("covered") as mapboxgl.GeoJSONSource).setData(covered);
-    (mapRef.current!.getSource("remaining") as mapboxgl.GeoJSONSource).setData(remaining);
+          const covered = turf.lineSlice(turf.point(origin.coord), turf.point(cur), toTarget);
+          const remaining = turf.lineSlice(turf.point(cur), turf.point(center), toTarget);
+          (mapRef.current!.getSource('covered') as mapboxgl.GeoJSONSource).setData(covered);
+          (mapRef.current!.getSource('remaining') as mapboxgl.GeoJSONSource).setData(remaining);
 
-    // Update FOV even less often (~6–8 fps)
-    if (now - lastScanTime > 150) {
-      lastScanTime = now;
-      const heading = turf.bearing(origin.coord, cur);
-      recordScanAt(mapRef.current!, cur, heading + CAMERA_OFFSET_DEG);
-    }
-  }
+          // Update FOV even less often (~6–8 fps)
+          if (now - lastScanTime > 150) {
+            lastScanTime = now;
+            const heading = turf.bearing(origin.coord, cur);
+            recordScanAt(mapRef.current!, cur, heading + CAMERA_OFFSET_DEG);
+          }
+        }
 
-  if (t < 1) {
-    enrouteRafRef.current = requestAnimationFrame(raf);
-  } else {
-    setInTransit(false);
-    inTransitRef.current = false;
-    startOrbit(center);
-  }
-};
-
-
+        if (t < 1) {
+          enrouteRafRef.current = requestAnimationFrame(raf);
+        } else {
+          setInTransit(false);
+          inTransitRef.current = false;
+          startOrbit(center);
+        }
+      };
 
       // 🔁 Save ID so we can cancel later
       enrouteRafRef.current = requestAnimationFrame(raf);
@@ -1236,39 +1228,38 @@ const raf = (now: number) => {
       clearTimeout(orbitTimerRef.current);
       orbitTimerRef.current = null;
     }
-  
+
     // ✅ FIX #1: define map instance for use below
     const m = mapRef.current;
     if (!m) return;
-  
+
     const orbit = turf.circle(center, ORBIT_RADIUS_M, {
       units: 'meters',
       steps: 120,
     }) as Feature<Polygon>;
-  
+
     const ring = orbit.geometry.coordinates[0];
     let i = 0;
-  
+
     setMissionPhase('scanning'); // 🛰️ update HUD immediately
-  
+
     const tick = () => {
       // Keep the mission ticking as long as it's active (even during replay)
       if (!missionActiveRef.current) return;
-  
+
       i = (i + 1) % ring.length;
       const cur = ring[i] as Coord;
-  
+
       // Move the live marker ONLY when not replaying
       if (!isReplayModeRef.current && droneMarkerRef.current) {
         droneMarkerRef.current.setLngLat(cur);
       }
-  
+
       // 🟠 record camera FOV every few hundred ms
       // 🟠 Record camera FOV every frame — synced with drone
       const heading = turf.bearing(cur, center);
-    recordScanAt(mapRef.current!, cur, heading + 180); // +180 if camera looks backward
+      recordScanAt(mapRef.current!, cur, heading + 180); // +180 if camera looks backward
 
-  
       // Continue recording the live path regardless of replay mode
       setDronePath((prev) => {
         const now = Date.now();
@@ -1278,15 +1269,13 @@ const raf = (now: number) => {
         }
         return prev;
       });
-  
+
       orbitTimerRef.current = window.setTimeout(tick, 80);
     };
-  
+
     tick();
   };
-  
 
-  
   const handleTimelineSeek = (ts: number) => {
     if (dronePath.length < 2 || !mapRef.current) return;
 
@@ -1356,7 +1345,6 @@ const raf = (now: number) => {
     updateEventMarkers(visibleEvents);
   };
 
-
   const goLive = () => {
     console.log('🔴 Returning to LIVE mode...');
 
@@ -1379,7 +1367,7 @@ const raf = (now: number) => {
 
     // --- Clear the replay overlay path ---
     const m = mapRef.current;
-    
+
     const replaySrc = m?.getSource('replay-path') as mapboxgl.GeoJSONSource | undefined;
     if (replaySrc) {
       replaySrc.setData({
@@ -1395,13 +1383,12 @@ const raf = (now: number) => {
       m.easeTo({ center: [pos.lng, pos.lat], duration: 800 });
     }
     if (m) {
-      if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
-      if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
-// Remove any open popups from the DOM (Pegman or others)
-document.querySelectorAll('.mapboxgl-popup').forEach((el) => el.remove());
-if (m.getLayer("highlight-fov")) m.removeLayer("highlight-fov");
-if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
-
+      if (m.getLayer('highlight-fov')) m.removeLayer('highlight-fov');
+      if (m.getSource('highlight-fov')) m.removeSource('highlight-fov');
+      // Remove any open popups from the DOM (Pegman or others)
+      document.querySelectorAll('.mapboxgl-popup').forEach((el) => el.remove());
+      if (m.getLayer('highlight-fov')) m.removeLayer('highlight-fov');
+      if (m.getSource('highlight-fov')) m.removeSource('highlight-fov');
     }
     console.log('✅ LIVE mode resumed (no restart needed)');
   };
@@ -1424,154 +1411,150 @@ if (m.getSource("highlight-fov")) m.removeSource("highlight-fov");
       markersRef.current.push(marker);
     });
   };
-// 🧩 Place these at the top of your component (near other refs)
-function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
-  if (!m) return;
+  // 🧩 Place these at the top of your component (near other refs)
+  function recordScanAt(m: mapboxgl.Map, position: Coord, heading: number) {
+    if (!m) return;
 
-  const MAX_SCANS = 80;
-  const now = Date.now();
+    const MAX_SCANS = 80;
+    const now = Date.now();
 
-  // 🧹 Initialize scannedRef safely
-  if (
-    !scannedRef.current ||
-    !Array.isArray(scannedRef.current.features)
-  ) {
-    scannedRef.current = {
-      type: "FeatureCollection",
-      features: [] as Feature<Polygon>[],
+    // 🧹 Initialize scannedRef safely
+    if (!scannedRef.current || !Array.isArray(scannedRef.current.features)) {
+      scannedRef.current = {
+        type: 'FeatureCollection',
+        features: [] as Feature<Polygon>[],
+      };
+    }
+
+    // 🟧 Create the new FOV polygon
+    const fov = makeFovRect(position, heading);
+    if (!fov.properties) fov.properties = {};
+
+    const videoTime = videoRef.current?.getCurrentTime?.() ?? 0;
+    const confidence = +(0.8 + Math.random() * 0.2).toFixed(2);
+    const snapshot = videoRef.current?.captureFrame?.() ?? null;
+
+    Object.assign(fov.properties, {
+      id: `scan-${now}`,
+      scannedAt: now,
+      coord: position,
+      heading,
+      confidence,
+      thumbnail: snapshot,
+      'fill-opacity': 1.0, // newest = brightest
+    });
+
+    // 🧩 Keep only last N scans
+    const scans = scannedRef.current.features as Feature<Polygon>[];
+    if (scans.length >= MAX_SCANS) scans.shift();
+    scans.push(fov);
+
+    // 🌓 Fade older scans
+    const faded: Feature<Polygon>[] = scans.map((f) => {
+      if (!f.properties) f.properties = {};
+      const scannedAt = (f.properties.scannedAt as number) ?? now;
+      const age = now - scannedAt;
+      const fade = Math.max(0.15, 1 - age / 5000); // 5s fade
+      f.properties['fill-opacity'] = fade;
+      return f;
+    });
+
+    // 🟠 Update the orange "scanned" source
+    const collection: FeatureCollection<Polygon> = {
+      type: 'FeatureCollection',
+      features: faded,
     };
+
+    const src = m.getSource('scanned') as mapboxgl.GeoJSONSource | undefined;
+    if (src) src.setData(collection);
+    scannedRef.current = collection;
+
+    // 🟢 Update live current FOV (sensor beam)
+    const fovSrc = m.getSource('sensorFov') as mapboxgl.GeoJSONSource | undefined;
+    if (fovSrc) fovSrc.setData(fov);
+
+    // 🧠 Persist to React state for side panel
+    setScanClips((prev) => {
+      if (prev.some((clip) => clip.id === fov.properties!.id)) return prev;
+      return [
+        ...prev,
+        {
+          id: fov.properties!.id as string,
+          coord: position,
+          heading,
+          startTimeSec: videoTime,
+          confidence,
+          thumbnail: snapshot,
+        },
+      ];
+    });
+
+    console.log(
+      `🟧 Recorded scan at ${videoTime.toFixed(1)}s (heading ${heading.toFixed(0)}°), confidence ${(
+        confidence * 100
+      ).toFixed(0)}%`
+    );
   }
 
-  // 🟧 Create the new FOV polygon
-  const fov = makeFovRect(position, heading);
-  if (!fov.properties) fov.properties = {};
+  function ensureSourceAndLayer(map: mapboxgl.Map) {
+    const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-  const videoTime = videoRef.current?.getCurrentTime?.() ?? 0;
-  const confidence = +(0.8 + Math.random() * 0.2).toFixed(2);
-  const snapshot = videoRef.current?.captureFrame?.() ?? null;
+    if (!map.getSource('scanned')) {
+      map.addSource('scanned', { type: 'geojson', data: empty });
+    }
+    if (!map.getSource('covered')) {
+      map.addSource('covered', { type: 'geojson', data: empty });
+    }
+    if (!map.getSource('remaining')) {
+      map.addSource('remaining', { type: 'geojson', data: empty });
+    }
 
-  Object.assign(fov.properties, {
-    id: `scan-${now}`,
-    scannedAt: now,
-    coord: position,
-    heading,
-    confidence,
-    thumbnail: snapshot,
-    "fill-opacity": 1.0, // newest = brightest
-  });
-
-  // 🧩 Keep only last N scans
-  const scans = scannedRef.current.features as Feature<Polygon>[];
-  if (scans.length >= MAX_SCANS) scans.shift();
-  scans.push(fov);
-
-  // 🌓 Fade older scans
-  const faded: Feature<Polygon>[] = scans.map((f) => {
-    if (!f.properties) f.properties = {};
-    const scannedAt = (f.properties.scannedAt as number) ?? now;
-    const age = now - scannedAt;
-    const fade = Math.max(0.15, 1 - age / 5000); // 5s fade
-    f.properties["fill-opacity"] = fade;
-    return f;
-  });
-
-  // 🟠 Update the orange "scanned" source
-  const collection: FeatureCollection<Polygon> = {
-    type: "FeatureCollection",
-    features: faded,
-  };
-
-  const src = m.getSource("scanned") as mapboxgl.GeoJSONSource | undefined;
-  if (src) src.setData(collection);
-  scannedRef.current = collection;
-
-  // 🟢 Update live current FOV (sensor beam)
-  const fovSrc = m.getSource("sensorFov") as mapboxgl.GeoJSONSource | undefined;
-  if (fovSrc) fovSrc.setData(fov);
-
-  // 🧠 Persist to React state for side panel
-  setScanClips((prev) => {
-    if (prev.some((clip) => clip.id === fov.properties!.id)) return prev;
-    return [
-      ...prev,
-      {
-        id: fov.properties!.id as string,
-        coord: position,
-        heading,
-        startTimeSec: videoTime,
-        confidence,
-        thumbnail: snapshot,
-      },
-    ];
-  });
-
-  console.log(
-    `🟧 Recorded scan at ${videoTime.toFixed(1)}s (heading ${heading.toFixed(
-      0
-    )}°), confidence ${(confidence * 100).toFixed(0)}%`
-  );
-}
-
-function ensureSourceAndLayer(map: mapboxgl.Map) {
-  const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
-
-  if (!map.getSource("scanned")) {
-    map.addSource("scanned", { type: "geojson", data: empty });
-  }
-  if (!map.getSource("covered")) {
-    map.addSource("covered", { type: "geojson", data: empty });
-  }
-  if (!map.getSource("remaining")) {
-    map.addSource("remaining", { type: "geojson", data: empty });
+    if (!map.getLayer('scanned-fill')) {
+      map.addLayer({
+        id: 'scanned-fill',
+        type: 'fill',
+        source: 'scanned',
+        paint: { 'fill-color': '#ff9500', 'fill-opacity': 0.15 },
+      });
+    }
+    if (!map.getLayer('path-covered')) {
+      map.addLayer({
+        id: 'path-covered',
+        type: 'line',
+        source: 'covered',
+        paint: { 'line-color': '#16a34a', 'line-width': 4 },
+      });
+    }
+    if (!map.getLayer('path-remaining')) {
+      map.addLayer({
+        id: 'path-remaining',
+        type: 'line',
+        source: 'remaining',
+        paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
+      });
+    }
   }
 
-  if (!map.getLayer("scanned-fill")) {
-    map.addLayer({
-      id: "scanned-fill",
-      type: "fill",
-      source: "scanned",
-      paint: { "fill-color": "#ff9500", "fill-opacity": 0.15 },
+  function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
+    const halfW = 50; // half-width (total width 100m)
+    const depth = 200; // forward distance of camera FOV
+
+    // compute left/right edges relative to heading
+    const left = turf.destination(center, halfW, heading - 90, { units: 'meters' }).geometry
+      .coordinates as Coord;
+    const right = turf.destination(center, halfW, heading + 90, { units: 'meters' }).geometry
+      .coordinates as Coord;
+
+    // extend forward (in front of the drone)
+    const frontLeft = turf.destination(left, depth, heading, { units: 'meters' }).geometry
+      .coordinates as Coord;
+    const frontRight = turf.destination(right, depth, heading, { units: 'meters' }).geometry
+      .coordinates as Coord;
+
+    return turf.polygon([[left, frontLeft, frontRight, right, left]], {
+      scannedAt: Date.now(),
     });
   }
-  if (!map.getLayer("path-covered")) {
-    map.addLayer({
-      id: "path-covered",
-      type: "line",
-      source: "covered",
-      paint: { "line-color": "#16a34a", "line-width": 4 },
-    });
-  }
-  if (!map.getLayer("path-remaining")) {
-    map.addLayer({
-      id: "path-remaining",
-      type: "line",
-      source: "remaining",
-      paint: { "line-color": "#64748b", "line-width": 3, "line-dasharray": [2, 2] },
-    });
-  }
-}  
-  
-function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
-  const halfW = 50;    // half-width (total width 100m)
-  const depth = 200;   // forward distance of camera FOV
-
-  // compute left/right edges relative to heading
-  const left = turf.destination(center, halfW, heading - 90, { units: "meters" })
-    .geometry.coordinates as Coord;
-  const right = turf.destination(center, halfW, heading + 90, { units: "meters" })
-    .geometry.coordinates as Coord;
-
-  // extend forward (in front of the drone)
-  const frontLeft = turf.destination(left, depth, heading, { units: "meters" })
-    .geometry.coordinates as Coord;
-  const frontRight = turf.destination(right, depth, heading, { units: "meters" })
-    .geometry.coordinates as Coord;
-
-  return turf.polygon([[left, frontLeft, frontRight, right, left]], {
-    scannedAt: Date.now(),
-  });
-}
-
 
   const nearestPort = (pt: Coord): DronePort => {
     return initialDronePorts.reduce((best, p) => {
@@ -2085,27 +2068,44 @@ function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
         {/* --- Event Feed Sidebar --- */}
 
         {/* --- Drawer Toggle Button --- */}
-        {showFeed && (
+        {/* {showFeed && (
           <EventFeed
             events={allEvents}
             missionActive={missionActive}
             unreadCount={unreadCount}
-            onSelect={(ev) => {
-              setSelectedEventId(ev.id);
-              mapRef.current?.flyTo({ center: ev.coord, zoom: 15 });
-
-              const first = allEvents[0];
-              if (first && videoRef.current) {
-                const offset = Math.max(0, (ev.ts - first.ts) / 1000);
-                videoRef.current.seekTo(offset);
-              }
-
-              // mark as read
-              setAllEvents((prev) => prev.map((e) => (e.id === ev.id ? { ...e, seen: true } : e)));
+            onSelect={(ev) => console.log('Selected:', ev)}
+            onLaunchMission={() => setMissionActive(true)}
+            onReturnToBase={() => setMissionActive(false)}
+            missionInfo={{
+              title: 'Warehouse Fire',
+              location: 'Südstraße 24, Ingolstadt',
             }}
-            onMarkRead={(id) =>
-              setAllEvents((prev) => prev.map((e) => (e.id === id ? { ...e, seen: true } : e)))
-            }
+            uavStatus={{
+              battery: 78,
+              altitude: 42,
+              connected: true,
+            }}
+          />
+        )} */}
+        {showFeed && (
+          <Sidebar
+            missionInfo={{
+              id: 'UAV-734',
+              title: 'Warehouse Fire — Südstraße 24, Ingolstadt',
+            }}
+            uavStatus={{
+              battery: 78,
+              gps: '48.76° N, 11.42° E',
+              link: 'Strong',
+            }}
+            detections={allEvents.map((ev) => ({
+              id: ev.id,
+              type: ev.label, // Map from your DetectionEvent type
+              time: new Date(ev.ts).toLocaleTimeString(),
+            }))}
+            onLaunch={() => setMissionActive(true)}
+            onReturn={() => setMissionActive(false)}
+            onEmergencyStop={() => console.log('🚨 EMERGENCY STOP TRIGGERED')}
           />
         )}
 
@@ -2201,8 +2201,10 @@ function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
             >
               📏
             </button>
-            <PegmanControl enabled={missionActive || allEvents.length > 0} onDropOnMap={handlePegmanDrop} />
-
+            <PegmanControl
+              enabled={missionActive || allEvents.length > 0}
+              onDropOnMap={handlePegmanDrop}
+            />
           </div>
 
           {/* Video Review — shown only when mission active */}
@@ -2451,26 +2453,26 @@ function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
           }}
         />
         {tooltip && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 20,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#ef4444',
-            color: '#fff',
-            padding: '10px 16px',
-            borderRadius: 12,
-            fontWeight: 600,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-            animation: 'fadeOut 3s forwards',
-            zIndex: 4000,
-          }}
-          onAnimationEnd={() => setTooltip(null)}
-        >
-          🚫 This area hasn’t been scanned yet
-        </div>
-      )}
+          <div
+            style={{
+              position: 'absolute',
+              top: 20,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: '#ef4444',
+              color: '#fff',
+              padding: '10px 16px',
+              borderRadius: 12,
+              fontWeight: 600,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              animation: 'fadeOut 3s forwards',
+              zIndex: 4000,
+            }}
+            onAnimationEnd={() => setTooltip(null)}
+          >
+            🚫 This area hasn’t been scanned yet
+          </div>
+        )}
 
         {(missionActive || dronePath.length > 0) && (
           <div>

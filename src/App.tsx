@@ -35,7 +35,7 @@ function App() {
         {/* ✅ onboarding screen */}
         <Route
           path="/onboarding"
-          element={<OnboardingToSensor />}   // see helper below
+          element={<OnboardingToSensor />} // see helper below
         />
 
         {/* tasks hub is still reachable manually */}
