@@ -3,6 +3,7 @@ import type { DetectionEvent } from '../shared/DetectionEvent';
 import type { VideoReviewHandle } from './VideoReview';
 import EventFilters from './EventFilters';
 import './EventTimeline.css';
+import { iconMap } from '../shared/iconMap';
 
 type Label = string;
 
@@ -632,9 +633,9 @@ export default function EventTimeline({
             const x = msToX(c.ts);
             const count = c.list.length;
             const firstLabel = c.list[0]?.label ?? 'event';
-            const icon = (c.list[0] as any)?.icon || defaultIcon(firstLabel);
 
-            // Collect unique labels for tooltip
+            const meta = iconMap[firstLabel] || iconMap.default;
+
             const uniqueLabels = [...new Set(c.list.map((e) => e.label))].join(', ');
             const title =
               count > 1
@@ -646,7 +647,14 @@ export default function EventTimeline({
                 key={`${c.ts}-${i}`}
                 className={`tl-marker${count > 1 ? ' tl-marker-cluster' : ''}`}
                 title={title}
-                style={{ left: `${x}px`, top: `0px` }} // flat layout, no lane stacking
+                style={{
+                  left: `${x}px`,
+                  top: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   seekTo(c.ts, true);
@@ -657,8 +665,49 @@ export default function EventTimeline({
                 }}
                 onMouseLeave={() => setHoverCluster(null)}
               >
-                {icon}
-                {count > 1 && <span className="tl-badge">+{count}</span>}
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 6,
+                    background: meta.bg,
+                    color: meta.color,
+                    transition: 'transform 0.15s ease',
+                  }}
+                  className="tl-marker-icon"
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{
+                      fontSize: 18,
+                      color: meta.color,
+                    }}
+                  >
+                    {meta.icon}
+                  </span>
+                </div>
+
+                {count > 1 && (
+                  <span
+                    className="tl-badge"
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      background: '#0ea5e9',
+                      color: '#fff',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 4px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    +{count}
+                  </span>
+                )}
               </button>
             );
           })}

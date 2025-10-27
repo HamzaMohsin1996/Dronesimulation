@@ -387,29 +387,53 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
-    // 🧠 Determine which events should be visible
+    // 🧠 Filter visible events
     const filtered = allEvents.filter((ev) => {
       const matchesLabel = activeFilters.size === 0 || activeFilters.has(ev.label);
-
-      // if replaying history → only show events up to the current timelineTs
-      // if live mode → show everything
       const inTime = isLive || timelineTs === null ? true : ev.ts <= timelineTs;
-
       return matchesLabel && inTime;
     });
 
-    // 🪄 Draw the visible events
+    // 🪄 Draw visible events
     filtered.forEach((ev) => {
+      const meta = iconMap[ev.label] || iconMap.default;
+
       const el = document.createElement('div');
-      el.style.fontSize = '28px';
+      el.style.width = '34px';
+      el.style.height = '34px';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.borderRadius = '8px';
+      el.style.background = meta.bg;
+      el.style.color = meta.color;
       el.style.cursor = 'pointer';
-      el.innerText = iconMap[ev.label]?.icon ?? '❓';
+      el.style.transition = 'transform 0.25s ease, box-shadow 0.25s ease';
+      el.style.transformOrigin = 'center center';
+      el.style.willChange = 'transform'; // smooth GPU-accelerated scaling
 
-      // --- Hover preview popup ---
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'material-symbols-outlined';
+      iconSpan.textContent = meta.icon;
+      iconSpan.style.fontSize = '22px';
+      iconSpan.style.color = meta.color;
+      el.appendChild(iconSpan);
+
+      // --- Hover scale effect ---
+      el.addEventListener('mouseenter', () => {
+        el.style.transform = 'scale(1.25)';
+        el.style.boxShadow = `0 0 8px ${meta.color}`;
+      });
+      el.addEventListener('mouseleave', () => {
+        el.style.transform = 'scale(1)';
+        el.style.boxShadow = 'none';
+      });
+
+      // --- Hover Popup (small tooltip) ---
       let popup: mapboxgl.Popup | null = null;
-
       el.addEventListener('mouseenter', () => {
         if (popup) return;
+
         popup = new mapboxgl.Popup({
           closeButton: false,
           closeOnClick: false,
@@ -418,14 +442,17 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
           .setLngLat(ev.coord)
           .setHTML(
             `
+          <div style="color:white;font-family:sans-serif;">
             <strong>${ev.label.toUpperCase()}</strong><br/>
             ${new Date(ev.ts).toLocaleTimeString()}<br/>
             ${
               ev.thumbnail
-                ? `<img src="${ev.thumbnail}" style="max-width:120px;border-radius:4px;margin-top:4px"/>`
+                ? `<img src="${ev.thumbnail}" 
+                         style="max-width:120px;border-radius:4px;margin-top:4px"/>`
                 : ''
             }
-          `
+          </div>
+        `
           )
           .addTo(m);
       });
@@ -437,12 +464,13 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
         }
       });
 
-      // --- Click to open full modal ---
+      // --- Click Modal (full snapshot) ---
       el.addEventListener('click', () => {
         if (popup) {
           popup.remove();
           popup = null;
         }
+
         const existing = document.getElementById('event-modal');
         if (existing) existing.remove();
 
@@ -502,7 +530,13 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
         document.body.appendChild(modal);
       });
 
-      const marker = new mapboxgl.Marker({ element: el }).setLngLat(ev.coord).addTo(m);
+      const marker = new mapboxgl.Marker({
+        element: el,
+        anchor: 'center', // keeps scaling centered
+      })
+        .setLngLat(ev.coord)
+        .addTo(m);
+
       markersRef.current.push(marker);
     });
   }, [allEvents, activeFilters, timelineTs, isLive]);
@@ -955,16 +989,6 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
         return;
       }
 
-      const iconMap: Record<string, string> = {
-        fire: '🔥',
-        person: '👤',
-        chemical: '🧪',
-        snapshot: '📸',
-        car: '🚗',
-        truck: '🚚',
-        animal: '🐾',
-      };
-
       if (!isLive) {
         console.debug('Skipping detections during replay');
         return;
@@ -985,7 +1009,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
           seen: false,
           thumbnail: e.thumbnail,
           bbox: e.bbox,
-          icon: iconMap[label] || '📸',
+          icon: iconMap[label]?.icon || 'photo_camera', // ✅ use imported iconMap
         };
       });
 
