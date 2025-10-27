@@ -55,7 +55,7 @@ export default function EventFeed({
     <aside
       style={{
         width: 340,
-        borderRight: '1px solid #e5e7eb',
+        // borderRight: '1px solid #e5e7eb',
         background: '#101922',
         display: 'flex',
         flexDirection: 'column',

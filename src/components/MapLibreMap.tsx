@@ -2104,7 +2104,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
             left: showFeed ? 340 : 0, // move out when sidebar is open
             transform: 'translateY(-50%)',
             zIndex: videoExpanded ? 101 : 107,
-            background: showFeed ? '#0ea5e9' : '#111827',
+            background: showFeed ? '#101922' : '#111827',
             color: '#fff',
             border: 'none',
             borderRadius: '0 12px 12px 0',
