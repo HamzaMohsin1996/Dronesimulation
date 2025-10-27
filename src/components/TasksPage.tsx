@@ -127,7 +127,18 @@ export default function TasksPage() {
         >
           {activeTab === 'onboarding' ? (
             <div style={{ padding: '0.5rem' }}>
-             <OnboardingFlow />  
+              <OnboardingFlow
+                onStart={() => {
+                  localStorage.setItem('onboardingDone', '1');
+                  setOnboardingDone(true);
+                  navigate('/sensor-retrieval');
+                }}
+                onSkip={() => {
+                  localStorage.setItem('onboardingDone', '1');
+                  setOnboardingDone(true);
+                  navigate('/sensor-retrieval');
+                }}
+              />
             </div>
           ) : (
             <div style={{ padding: '0.75rem' }}>

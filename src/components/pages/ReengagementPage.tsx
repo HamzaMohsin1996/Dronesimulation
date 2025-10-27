@@ -546,7 +546,7 @@ export default function ReengagementMap() {
             properties: {},
           });
 
-          // 🚀 Start scanning depending on mission type
+          //  Start scanning depending on mission type
           if (scanMode === 'CLICK') {
             startCircleScan(center);
           } else if (scanMode === 'STREET' && missionGeom?.line) {
@@ -1302,7 +1302,7 @@ export default function ReengagementMap() {
                 zIndex: 2200,
               }}
             >
-              🚀 Start Mission
+              Start Mission
             </button>
           )}
 

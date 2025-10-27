@@ -546,7 +546,7 @@ export default function SpatialInteractionsPage() {
             properties: {},
           });
 
-          // 🚀 Start scanning depending on mission type
+          //  Start scanning depending on mission type
           if (scanMode === 'CLICK') {
             startCircleScan(center);
           } else if (scanMode === 'STREET' && missionGeom?.line) {
@@ -1041,7 +1041,7 @@ export default function SpatialInteractionsPage() {
                 zIndex: 2200,
               }}
             >
-              🚀 Start Mission
+              Start Mission
             </button>
           )}
 

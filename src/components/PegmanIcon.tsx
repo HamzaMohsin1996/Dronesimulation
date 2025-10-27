@@ -13,7 +13,7 @@ export default function PegmanControl({ onDropOnMap, enabled = false }: PegmanPr
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   console.log('🧩 Pegman rendered');
   useEffect(() => {
-    console.log('🚀 Pegman mounted');
+    console.log(' Pegman mounted');
     return () => console.log('💥 Pegman unmounted');
   }, []);
   useEffect(() => {

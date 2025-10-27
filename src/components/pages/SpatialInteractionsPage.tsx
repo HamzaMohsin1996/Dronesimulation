@@ -11,7 +11,7 @@ import type { DetectionEvent } from '../../shared/DetectionEvent';
 import VideoReview, { VideoReviewHandle } from '../VideoReview';
 import DroneEnrouteVideo from '../../assets/images/dronenroute.mp4';
 import PegmanControl from '../PegmanIcon';
-import { createRoot } from "react-dom/client";
+import { createRoot } from 'react-dom/client';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
 
@@ -75,7 +75,6 @@ export default function ReengagementMap() {
   const [arrivalToast, setArrivalToast] = useState<string | null>(null);
   const [pegmanEnabled, setPegmanEnabled] = useState(false);
 
-
   // scanned rectangles
   const scannedRef = useRef<FeatureCollection>({ type: 'FeatureCollection', features: [] });
 
@@ -87,23 +86,21 @@ export default function ReengagementMap() {
   const fireHistoryRef = useRef<FeatureCollection>({ type: 'FeatureCollection', features: [] });
   const lastScanTsRef = useRef(0);
   const SCAN_INTERVAL_MS = 300; // scan every 0.3 seconds
-  
 
   // 🧍 Add draggable person (Pegman-style)
   const personMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   function handlePegmanDrop(lng: number, lat: number) {
-    console.log("Pegman dropped at:", lng, lat);
+    console.log('Pegman dropped at:', lng, lat);
     handlePersonDropped([lng, lat]); // reuse the same logic
   }
-  
-  
+
   function handlePersonDropped(coord: Coord) {
     const m = mapRef.current;
     if (!m) return;
-  
+
     const point = turf.point(coord);
-  
+
     // 🧭 Search ALL scanned polygons
     const match = scannedRef.current.features.find((f) => {
       if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') return false;
@@ -111,26 +108,25 @@ export default function ReengagementMap() {
       const buffered = turf.buffer(f, 10, { units: 'meters' });
       return turf.booleanPointInPolygon(point, buffered as Feature<Polygon | MultiPolygon>);
     });
-  
+
     if (!match) {
       new mapboxgl.Popup()
         .setLngLat(coord)
-        .setHTML("<b>No scan data yet for this area.</b>")
+        .setHTML('<b>No scan data yet for this area.</b>')
         .addTo(m);
       return;
     }
-  
+
     // ✅ Found a match — open the corresponding video
     const { videoUrl, startTimeSec } = match.properties as any;
     setViewerSrc(videoUrl || DroneEnrouteVideo);
     setViewerActive(true);
-  
+
     // Seek to correct time in video
     setTimeout(() => {
       videoRef.current?.seekAndPause(startTimeSec ?? 0);
     }, 500);
   }
-  
 
   // --------------------------------------------------------
   // Map creation
@@ -148,10 +144,10 @@ export default function ReengagementMap() {
     m.on('load', () => {
       addCustomSourcesAndLayers(m);
       addDronePorts(m);
-    // addPersonMarker(m);
+      // addPersonMarker(m);
       styleReadyRef.current = true;
       // expose map globally so PegmanControl can access it
-  (window as any).mapboxMapRef = m;
+      (window as any).mapboxMapRef = m;
 
       // --- Hover popup for historical fires ---
       m.on('mouseenter', 'fire-history', (e) => {
@@ -180,15 +176,16 @@ export default function ReengagementMap() {
         const timeStr = new Date(scannedAt).toLocaleTimeString();
         const popup = new mapboxgl.Popup({ closeButton: false })
           .setLngLat(e.lngLat)
-          .setHTML(`
+          .setHTML(
+            `
             <strong>Scanned Area</strong><br/>
             Time: ${timeStr}<br/>
             Confidence: ${(confidence * 100).toFixed(0)}%
-          `)
+          `
+          )
           .addTo(m);
         m.once('mouseleave', 'scanned-fill', () => popup.remove());
       });
-      
     });
 
     mapRef.current = m;
@@ -248,14 +245,14 @@ export default function ReengagementMap() {
         paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.18 },
         filter: ['==', ['geometry-type'], 'Polygon'],
       });
-      if (!m.getLayer('scanned-outline'))
-        m.addLayer({
-          id: 'scanned-outline',
-          type: 'line',
-          source: 'scanned',
-          paint: { 'line-color': '#cc5600', 'line-width': 1.5, 'line-opacity': 0.9 },
-        });
-      
+    if (!m.getLayer('scanned-outline'))
+      m.addLayer({
+        id: 'scanned-outline',
+        type: 'line',
+        source: 'scanned',
+        paint: { 'line-color': '#cc5600', 'line-width': 1.5, 'line-opacity': 0.9 },
+      });
+
     if (!m.getLayer('mission-outline'))
       m.addLayer({
         id: 'mission-outline',
@@ -450,26 +447,25 @@ export default function ReengagementMap() {
       (best, p) => (turf.distance(best, pt) < turf.distance(p, pt) ? best : p),
       DRONE_PORTS[0]
     );
-    function recordScanAt(m: MapboxMap, position: Coord, heading: number) {
-      const fov = makeFovRect(position, heading);
-      const timestamp = Date.now();
-      const videoTime = videoRef.current?.getCurrentTime?.() ?? 0;
-    
-      fov.properties = {
-        id: `scan-${timestamp}`,
-        scannedAt: timestamp,
-        videoUrl: DroneEnrouteVideo,
-        startTimeSec: videoTime,
-        confidence: +(0.8 + Math.random() * 0.2).toFixed(2),
-      };
-    
-      (m.getSource("sensorFov") as GeoJSONSource)?.setData(fov);
-    
-      // ✅ Append (don’t overwrite)
-      scannedRef.current.features.push(fov as Feature<Polygon>);
-      (m.getSource("scanned") as GeoJSONSource)?.setData(scannedRef.current);
-    }
-    
+  function recordScanAt(m: MapboxMap, position: Coord, heading: number) {
+    const fov = makeFovRect(position, heading);
+    const timestamp = Date.now();
+    const videoTime = videoRef.current?.getCurrentTime?.() ?? 0;
+
+    fov.properties = {
+      id: `scan-${timestamp}`,
+      scannedAt: timestamp,
+      videoUrl: DroneEnrouteVideo,
+      startTimeSec: videoTime,
+      confidence: +(0.8 + Math.random() * 0.2).toFixed(2),
+    };
+
+    (m.getSource('sensorFov') as GeoJSONSource)?.setData(fov);
+
+    // ✅ Append (don’t overwrite)
+    scannedRef.current.features.push(fov as Feature<Polygon>);
+    (m.getSource('scanned') as GeoJSONSource)?.setData(scannedRef.current);
+  }
 
   const startMission = () => {
     if (!missionGeom) return;
@@ -502,7 +498,9 @@ export default function ReengagementMap() {
     setMissionActive(true);
     if (personMarkerRef.current) {
       personMarkerRef.current.addTo(m);
-      showHint("🧍 You can drag the orange person onto any scanned area to view what the drone sees.");
+      showHint(
+        '🧍 You can drag the orange person onto any scanned area to view what the drone sees.'
+      );
     }
     scannedRef.current = { type: 'FeatureCollection', features: [] };
 
@@ -519,13 +517,12 @@ export default function ReengagementMap() {
       const curCoord = curPt.geometry.coordinates as Coord;
       droneMarkerRef.current.setLngLat(curCoord);
       const heading = turf.bearing(curCoord, center);
-     // ✅ continuously record sensor footprints every few hundred ms
-const nowMs = performance.now();
-if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
-  lastScanTsRef.current = nowMs;
-  recordScanAt(m, curCoord, heading);
-}
-
+      // ✅ continuously record sensor footprints every few hundred ms
+      const nowMs = performance.now();
+      if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
+        lastScanTsRef.current = nowMs;
+        recordScanAt(m, curCoord, heading);
+      }
 
       const remainingKm = distKm * (1 - t);
       setDistKmLeft(remainingKm);
@@ -547,12 +544,11 @@ if (nowMs - lastScanTsRef.current > SCAN_INTERVAL_MS) {
       else {
         showArrivalToast();
         // when mission starts (drone launches)
-setPegmanEnabled(false);
+        setPegmanEnabled(false);
 
-// when drone reaches target and starts orbit (scanning)
-startOrbit(center);
-setPegmanEnabled(true);
-
+        // when drone reaches target and starts orbit (scanning)
+        startOrbit(center);
+        setPegmanEnabled(true);
       }
     };
     if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
@@ -580,7 +576,7 @@ setPegmanEnabled(true);
 
     let i = 0;
     const m = mapRef.current!;
-   //   addPersonMarker(m); //  Pegman appears now, only when scanning starts
+    //   addPersonMarker(m); //  Pegman appears now, only when scanning starts
     const trailCoords: Coord[] = [];
 
     const loop = () => {
@@ -601,7 +597,7 @@ setPegmanEnabled(true);
         lastScanTsRef.current = nowMs;
         recordScanAt(m, cur, heading);
       }
-      
+
       droneMarkerRef.current?.setLngLat(cur);
 
       i = (i + 1) % ring.length;
@@ -649,45 +645,45 @@ setPegmanEnabled(true);
   return (
     <>
       <Header notifications={[]} onSelectNotification={() => {}} />
-  
+
       {/* 🗺️ Map container */}
-      <div style={{ position: "relative", height: "calc(100vh - 60px)" }}>
-        <div ref={mapEl} style={{ position: "absolute", inset: 0 }} />
-  
+      <div style={{ position: 'relative', height: 'calc(100vh - 60px)' }}>
+        <div ref={mapEl} style={{ position: 'absolute', inset: 0 }} />
+
         {/* 🧭 Basemap toggle */}
         <LayersControl current={mapStyle} onChange={setMapStyle} />
-  
+
         {/* 🎛️ Scan mode buttons + Pegman */}
         <div
           style={{
-            position: "absolute",
-            top: "50%",
+            position: 'absolute',
+            top: '50%',
             right: 20,
-            transform: "translateY(-50%)",
-            display: "flex",
-            flexDirection: "column",
+            transform: 'translateY(-50%)',
+            display: 'flex',
+            flexDirection: 'column',
             gap: 12,
-            alignItems: "center",
+            alignItems: 'center',
             zIndex: 3000,
           }}
         >
           {/* 📍 Area scan button */}
           <button
-            style={btnStyle(scanMode === "CLICK")}
+            style={btnStyle(scanMode === 'CLICK')}
             onClick={() => {
-              setScanMode("CLICK");
+              setScanMode('CLICK');
               setStreetDraft([]);
             }}
             title="Area scan"
           >
             📍
           </button>
-  
+
           {/* 📏 Street scan button */}
           <button
-            style={btnStyle(scanMode === "STREET")}
+            style={btnStyle(scanMode === 'STREET')}
             onClick={() => {
-              setScanMode("STREET");
+              setScanMode('STREET');
               setStreetDraft([]);
               setMissionGeom((g) => (g ? { center: g.center } : null));
             }}
@@ -695,54 +691,53 @@ setPegmanEnabled(true);
           >
             📏
           </button>
-  
-          {/* 🧍 Pegman control */}
-          {/* 🧍 Pegman control */}
-  <PegmanControl onDropOnMap={handlePegmanDrop} enabled={pegmanEnabled} />
 
+          {/* 🧍 Pegman control */}
+          {/* 🧍 Pegman control */}
+          <PegmanControl onDropOnMap={handlePegmanDrop} enabled={pegmanEnabled} />
         </div>
-  
-        {/* 🚀 Start / Stop Mission buttons */}
+
+        {/*  Start / Stop Mission buttons */}
         {!missionActive && (
           <button
             onClick={startMission}
             disabled={!missionGeom?.center}
             style={{
-              position: "absolute",
+              position: 'absolute',
               bottom: 24,
               left: 20,
-              padding: "10px 16px",
+              padding: '10px 16px',
               borderRadius: 8,
-              background: missionGeom?.center ? "#16a34a" : "#9ca3af",
-              color: "#fff",
+              background: missionGeom?.center ? '#16a34a' : '#9ca3af',
+              color: '#fff',
               fontWeight: 700,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-              cursor: missionGeom?.center ? "pointer" : "not-allowed",
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              cursor: missionGeom?.center ? 'pointer' : 'not-allowed',
             }}
           >
-            🚀 Start Mission
+            Start Mission
           </button>
         )}
-  
+
         {missionActive && (
           <button
             onClick={endMission}
             style={{
-              position: "absolute",
+              position: 'absolute',
               bottom: 24,
               left: 20,
-              padding: "10px 16px",
+              padding: '10px 16px',
               borderRadius: 8,
-              background: "#111827",
-              color: "#fff",
+              background: '#111827',
+              color: '#fff',
               fontWeight: 700,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             }}
           >
             ⏹ End Mission
           </button>
         )}
-  
+
         {/* 🎥 Video viewer */}
         {viewerActive && (
           <VideoReview
@@ -756,47 +751,47 @@ setPegmanEnabled(true);
             }}
             style={{
               zIndex: 9999,
-              position: "fixed",
+              position: 'fixed',
               top: 0,
               left: 0,
             }}
           />
         )}
-  
+
         {/* 🔥 Toasts + hints */}
         {arrivalToast && (
           <div
             style={{
-              position: "absolute",
+              position: 'absolute',
               top: 20,
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "#111827",
-              color: "#fff",
-              padding: "10px 16px",
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: '#111827',
+              color: '#fff',
+              padding: '10px 16px',
               borderRadius: 12,
-              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+              boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
               fontWeight: 700,
             }}
           >
             {arrivalToast}
           </div>
         )}
-  
+
         {hint && (
           <div
             style={{
-              position: "absolute",
+              position: 'absolute',
               bottom: 80,
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.85)",
-              color: "#fff",
-              padding: "10px 18px",
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.85)',
+              color: '#fff',
+              padding: '10px 18px',
               borderRadius: 10,
               fontSize: 14,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-              textAlign: "center",
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+              textAlign: 'center',
             }}
           >
             {hint}
@@ -805,7 +800,6 @@ setPegmanEnabled(true);
       </div>
     </>
   );
-  
 }
 
 /* Floating basemap toggle */
@@ -869,7 +863,6 @@ function LayersControl({
             <div style={{ textAlign: 'center', padding: 6, fontWeight: 600 }}>{name}</div>
           </div>
         ))}
-        
     </div>
   );
 }

@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button, Card, ProgressBar, OverlayTrigger, Tooltip, Badge } from "react-bootstrap";
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button, Card, ProgressBar, OverlayTrigger, Tooltip, Badge } from 'react-bootstrap';
 import {
   FiArrowLeft,
   FiArrowRight,
@@ -13,18 +13,19 @@ import {
   FiPlay,
   FiVideo,
   FiUser,
-} from "react-icons/fi";
+} from 'react-icons/fi';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './onboarding.css';
 
-
 export default function OnboardingFlow({
   onStart,
-  targetPath = '/sensor-retrieval',   // ⬅️ default landing page
+  onSkip,
+  targetPath = '/sensor-retrieval', // ⬅️ default landing page
 }: {
   onStart?: () => void;
+  onSkip?: () => void;
   targetPath?: string;
-})  {
+}) {
   const navigate = useNavigate();
   const [step, setStep] = useState<number>(1);
 
@@ -37,7 +38,6 @@ export default function OnboardingFlow({
   const total = 5; // persona removed → 5 steps
   const allDone = didMap && didVideo && didFilter && didPegman;
 
-
   const goNext = () => setStep((s) => Math.min(total, s + 1));
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
@@ -46,7 +46,12 @@ export default function OnboardingFlow({
     if (onStart) onStart();
     else navigate('/sensor-retrieval'); // ⬅️ go to your interface
   };
-  
+  const handleSkip = () => {
+    localStorage.setItem('onboardingDone', '1');
+    if (onSkip) onSkip();
+    else navigate(targetPath);
+  };
+
   return (
     <div className="container py-4 py-md-5">
       <div className="mx-auto" style={{ maxWidth: 980 }}>
@@ -55,7 +60,7 @@ export default function OnboardingFlow({
             <Header step={step} total={total} />
 
             <div className="mt-3 mt-md-4">
-              {step === 1 && <Welcome onNext={goNext} />}
+              {step === 1 && <Welcome onNext={goNext} onSkip={handleSkip} />}
               {step === 2 && <Overview onNext={goNext} onBack={goBack} />}
               {step === 3 && <Familiarization onNext={goNext} onBack={goBack} />}
               {step === 4 && (
@@ -71,8 +76,6 @@ export default function OnboardingFlow({
             </div>
           </Card.Body>
         </Card>
-
-     
       </div>
     </div>
   );
@@ -85,7 +88,9 @@ function Header({ step, total }: { step: number; total: number }) {
     <div className="d-flex flex-column flex-md-row gap-2 align-items-md-center justify-content-between">
       <div>
         <div className="text-uppercase small text-muted">Onboarding</div>
-        <h2 className="h4 h-md3 mb-0">Step {step} / {total}</h2>
+        <h2 className="h4 h-md3 mb-0">
+          Step {step} / {total}
+        </h2>
       </div>
       <div className="w-100 w-md-50">
         <ProgressBar now={pct} visuallyHidden label={`${pct}%`} />
@@ -94,7 +99,15 @@ function Header({ step, total }: { step: number; total: number }) {
   );
 }
 
-function Nav({ onBack, onNext, nextDisabled }: { onBack?: () => void; onNext?: () => void; nextDisabled?: boolean }) {
+function Nav({
+  onBack,
+  onNext,
+  nextDisabled,
+}: {
+  onBack?: () => void;
+  onNext?: () => void;
+  nextDisabled?: boolean;
+}) {
   return (
     <div className="d-flex justify-content-between align-items-center mt-4">
       <div>
@@ -120,21 +133,21 @@ function Blurb({ children }: { children: React.ReactNode }) {
 }
 
 /*** Screen 1: Welcome ***/
-function Welcome({ onNext }: { onNext: () => void }) {
+function Welcome({ onNext, onSkip }: { onNext: () => void; onSkip?: () => void }) {
   return (
     <section className="content-swap">
       <h1 className="h3">Welcome to the UAV Interface Study</h1>
-      <p className="text-muted">You have already signed the consent form. Please click “Next” to continue with the digital briefing.</p>
+      <p className="text-muted">
+        You have already signed the consent form. You can continue with the onboarding by clicking
+        “Next” or skip it entirely.
+      </p>
 
-      <div className="mt-3">
-        <Blurb>Thank you for taking part in this research.</Blurb>
-        <Blurb>This study investigates how people interact with a UAV-based information system for monitoring emergency incidents.</Blurb>
-        <Blurb>You will complete several short monitoring tasks using two versions of an interface.</Blurb>
-        <Blurb>Your actions and responses will be recorded anonymously.</Blurb>
-        <Blurb>This study focuses on how the system supports you — not on your personal performance.</Blurb>
-      </div>
-
-      <div className="d-flex justify-content-end mt-3">
+      <div className="d-flex justify-content-between mt-3">
+        {onSkip && (
+          <Button variant="outline-secondary" onClick={onSkip} className="rounded-4">
+            Skip Onboarding
+          </Button>
+        )}
         <Button onClick={onNext} className="rounded-4" variant="dark">
           Next <FiArrowRight className="ms-1" />
         </Button>
@@ -152,12 +165,23 @@ function Overview({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         <li className="mb-2">
           You will use <strong>two versions</strong> of the UAV interface:
           <ul className="mt-2">
-            <li><em>Version A:</em> Basic map and video.</li>
-            <li><em>Version B:</em> Includes timeline, re-engagement panel, event feed, filters, and map layers.</li>
+            <li>
+              <em>Version A:</em> Basic map and video.
+            </li>
+            <li>
+              <em>Version B:</em> Includes timeline, re-engagement panel, event feed, filters, and
+              map layers.
+            </li>
           </ul>
         </li>
-        <li className="mb-2">You’ll perform a few tasks such as locating information, filtering data, and identifying what changed during an incident.</li>
-        <li className="mb-2">Occasionally, you’ll switch briefly to another small task — then return to continue monitoring.</li>
+        <li className="mb-2">
+          You’ll perform a few tasks such as locating information, filtering data, and identifying
+          what changed during an incident.
+        </li>
+        <li className="mb-2">
+          Occasionally, you’ll switch briefly to another small task — then return to continue
+          monitoring.
+        </li>
         <li>After each session, you’ll answer short questionnaires about your experience.</li>
       </ol>
       <p className="text-muted small">Note: You can stop at any time.</p>
@@ -170,19 +194,51 @@ function Overview({ onNext, onBack }: { onNext: () => void; onBack: () => void }
 function Familiarization({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const tiles = useMemo(
     () => [
-      { key: "map", title: "Map", icon: <FiMapPin />, text: "Shows the incident area and scanned sectors." },
-      { key: "video", title: "Video panel", icon: <FiVideo />, text: "Plays UAV footage of the scene." },
-      { key: "timeline", title: "Timeline", icon: <FiClock />, text: "View past events and filter by time." },
-      { key: "feed", title: "Event Feed", icon: <FiList />, text: "Lists updates and can be filtered for relevance." },
-      { key: "layers", title: "Map Layers", icon: <FiLayers />, text: "Show which areas were scanned." },
-      { key: "pegman", title: "Pegman", icon: <FiUser />, text: "Drag to view replay video at a specific location." },
+      {
+        key: 'map',
+        title: 'Map',
+        icon: <FiMapPin />,
+        text: 'Shows the incident area and scanned sectors.',
+      },
+      {
+        key: 'video',
+        title: 'Video panel',
+        icon: <FiVideo />,
+        text: 'Plays UAV footage of the scene.',
+      },
+      {
+        key: 'timeline',
+        title: 'Timeline',
+        icon: <FiClock />,
+        text: 'View past events and filter by time.',
+      },
+      {
+        key: 'feed',
+        title: 'Event Feed',
+        icon: <FiList />,
+        text: 'Lists updates and can be filtered for relevance.',
+      },
+      {
+        key: 'layers',
+        title: 'Map Layers',
+        icon: <FiLayers />,
+        text: 'Show which areas were scanned.',
+      },
+      {
+        key: 'pegman',
+        title: 'Pegman',
+        icon: <FiUser />,
+        text: 'Drag to view replay video at a specific location.',
+      },
     ],
     []
   );
   return (
     <section className="content-swap">
       <h2 className="h3">Let’s Get Familiar with the Interface</h2>
-      <p className="text-muted">Click each card to see a short description. Hover to view tooltips.</p>
+      <p className="text-muted">
+        Click each card to see a short description. Hover to view tooltips.
+      </p>
 
       <div className="row g-3 mt-1">
         {tiles.map((t) => (
@@ -231,22 +287,30 @@ function Practice({
   const { setDidMap, setDidVideo, setDidFilter, setDidPegman } = setFlags;
 
   const onDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData("text/plain", "pegman");
+    e.dataTransfer.setData('text/plain', 'pegman');
   };
   const onDragOver = (e: React.DragEvent) => e.preventDefault();
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.getData("text/plain") === "pegman") setDidPegman(true);
+    if (e.dataTransfer.getData('text/plain') === 'pegman') setDidPegman(true);
   };
 
   return (
     <section className="content-swap">
       <h2 className="h3">Quick Practice (No Data Recorded)</h2>
       <ol className="small text-muted ps-3">
-        <li>Click the map area labeled <strong>“Sector A.”</strong></li>
-        <li>Open the <strong>video feed</strong> for that area.</li>
-        <li>Apply a <strong>filter</strong> in the event feed (e.g., “critical events only”).</li>
-        <li>Drop the <strong>Pegman</strong> icon on a scanned area to open replay mode.</li>
+        <li>
+          Click the map area labeled <strong>“Sector A.”</strong>
+        </li>
+        <li>
+          Open the <strong>video feed</strong> for that area.
+        </li>
+        <li>
+          Apply a <strong>filter</strong> in the event feed (e.g., “critical events only”).
+        </li>
+        <li>
+          Drop the <strong>Pegman</strong> icon on a scanned area to open replay mode.
+        </li>
       </ol>
 
       <div className="row g-3 mt-2">
@@ -254,13 +318,17 @@ function Practice({
         <div className="col-12 col-md-8">
           <div className="border rounded-4 overflow-hidden">
             <div className="d-flex justify-content-between align-items-center px-3 py-2 bg-light">
-              <div className="d-flex align-items-center gap-2 text-muted"><FiMapPin/> Map</div>
-              <Badge bg="secondary" className="bg-opacity-25 text-secondary">Mock</Badge>
+              <div className="d-flex align-items-center gap-2 text-muted">
+                <FiMapPin /> Map
+              </div>
+              <Badge bg="secondary" className="bg-opacity-25 text-secondary">
+                Mock
+              </Badge>
             </div>
             <div className="position-relative practice-map">
               <button
                 onClick={() => setDidMap(true)}
-                className={`sector-btn ${didMap ? "sector-done" : ""}`}
+                className={`sector-btn ${didMap ? 'sector-done' : ''}`}
               >
                 Sector A {didMap && <FiCheck className="ms-1" />}
               </button>
@@ -269,9 +337,9 @@ function Practice({
               <div
                 onDragOver={onDragOver}
                 onDrop={onDrop}
-                className={`dropzone ${didPegman ? "dropzone-done" : ""}`}
+                className={`dropzone ${didPegman ? 'dropzone-done' : ''}`}
               >
-                {didPegman ? "Replay opened" : "Drop Pegman here"}
+                {didPegman ? 'Replay opened' : 'Drop Pegman here'}
               </div>
             </div>
           </div>
@@ -281,45 +349,74 @@ function Practice({
         <div className="col-12 col-md-4 d-flex flex-column gap-3">
           <Card className="border-0 shadow-xs">
             <Card.Header className="bg-light d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center gap-2 text-muted"><FiVideo/> Video</div>
+              <div className="d-flex align-items-center gap-2 text-muted">
+                <FiVideo /> Video
+              </div>
               {!didVideo && (
-                <Button size="sm" variant="outline-secondary" className="rounded-4" onClick={() => setDidVideo(true)}>
-                  <FiPlay className="me-1"/> Open feed
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  className="rounded-4"
+                  onClick={() => setDidVideo(true)}
+                >
+                  <FiPlay className="me-1" /> Open feed
                 </Button>
               )}
             </Card.Header>
-            <Card.Body className={`p-0 ${didVideo ? "video-on" : "bg-light"}`} style={{ height: 120 }}>
+            <Card.Body
+              className={`p-0 ${didVideo ? 'video-on' : 'bg-light'}`}
+              style={{ height: 120 }}
+            >
               {didVideo ? (
-                <div className="h-100 w-100 d-grid place-items-center text-white bg-dark small">(video playing)</div>
+                <div className="h-100 w-100 d-grid place-items-center text-white bg-dark small">
+                  (video playing)
+                </div>
               ) : (
-                <div className="h-100 w-100 d-grid place-items-center text-muted small">Click “Open feed”</div>
+                <div className="h-100 w-100 d-grid place-items-center text-muted small">
+                  Click “Open feed”
+                </div>
               )}
             </Card.Body>
           </Card>
 
           <Card className="border-0 shadow-xs">
-            <Card.Header className="bg-light d-flex align-items-center gap-2 text-muted"><FiFilter/> Event Filters</Card.Header>
+            <Card.Header className="bg-light d-flex align-items-center gap-2 text-muted">
+              <FiFilter /> Event Filters
+            </Card.Header>
             <Card.Body>
               <div className="d-flex flex-wrap gap-2">
-                <Button size="sm" className="rounded-4" variant={didFilter ? "success" : "outline-secondary"} onClick={() => setDidFilter(true)}>Critical</Button>
-                <Button size="sm" className="rounded-4" variant="outline-secondary">Movement</Button>
-                <Button size="sm" className="rounded-4" variant="outline-secondary">Weather</Button>
+                <Button
+                  size="sm"
+                  className="rounded-4"
+                  variant={didFilter ? 'success' : 'outline-secondary'}
+                  onClick={() => setDidFilter(true)}
+                >
+                  Critical
+                </Button>
+                <Button size="sm" className="rounded-4" variant="outline-secondary">
+                  Movement
+                </Button>
+                <Button size="sm" className="rounded-4" variant="outline-secondary">
+                  Weather
+                </Button>
               </div>
             </Card.Body>
           </Card>
 
           <Card className="border-0 shadow-xs">
             <Card.Header className="bg-light d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center gap-2 text-muted"><FiUser/> Pegman</div>
+              <div className="d-flex align-items-center gap-2 text-muted">
+                <FiUser /> Pegman
+              </div>
               <small className="text-muted">Drag to map</small>
             </Card.Header>
             <Card.Body>
               <div
                 draggable
                 onDragStart={onDragStart}
-                className={`pegman ${didPegman ? "pegman-done" : ""}`}
+                className={`pegman ${didPegman ? 'pegman-done' : ''}`}
               >
-                <FiUser className="me-1"/> Pegman
+                <FiUser className="me-1" /> Pegman
               </div>
             </Card.Body>
           </Card>
@@ -328,22 +425,33 @@ function Practice({
 
       {/* Checklist */}
       <div className="row g-2 mt-3">
-        <div className="col-6 col-md-3"><Pill done={didMap} label="Clicked Sector A"/></div>
-        <div className="col-6 col-md-3"><Pill done={didVideo} label="Opened video"/></div>
-        <div className="col-6 col-md-3"><Pill done={didFilter} label="Applied filter"/></div>
-        <div className="col-6 col-md-3"><Pill done={didPegman} label="Dropped Pegman"/></div>
+        <div className="col-6 col-md-3">
+          <Pill done={didMap} label="Clicked Sector A" />
+        </div>
+        <div className="col-6 col-md-3">
+          <Pill done={didVideo} label="Opened video" />
+        </div>
+        <div className="col-6 col-md-3">
+          <Pill done={didFilter} label="Applied filter" />
+        </div>
+        <div className="col-6 col-md-3">
+          <Pill done={didPegman} label="Dropped Pegman" />
+        </div>
       </div>
 
       <Nav onBack={onBack} onNext={onNext} nextDisabled={false} />
-
     </section>
   );
 }
 
 function Pill({ done, label }: { done: boolean; label: string }) {
   return (
-    <div className={`d-flex align-items-center gap-2 border rounded-4 px-3 py-2 small ${done ? "bg-success-subtle border-success text-success" : "bg-light"}`}>
-      <FiCheck className={done ? "opacity-100" : "opacity-25"} />
+    <div
+      className={`d-flex align-items-center gap-2 border rounded-4 px-3 py-2 small ${
+        done ? 'bg-success-subtle border-success text-success' : 'bg-light'
+      }`}
+    >
+      <FiCheck className={done ? 'opacity-100' : 'opacity-25'} />
       <span>{label}</span>
     </div>
   );
@@ -354,10 +462,19 @@ function Ready({ onStart, onBack }: { onStart: () => void; onBack: () => void })
   return (
     <section className="content-swap text-center">
       <h2 className="h3">You’re Ready to Start 🚀</h2>
-      <p className="text-muted">You’re now familiar with the interface. When you click <strong>“Start Study,”</strong> the main experiment will begin. You’ll receive specific tasks on-screen during each round. Please focus on accuracy and awareness — remember, it’s the system being evaluated, not you. Good luck!</p>
+      <p className="text-muted">
+        You’re now familiar with the interface. When you click <strong>“Start Study,”</strong> the
+        main experiment will begin. You’ll receive specific tasks on-screen during each round.
+        Please focus on accuracy and awareness — remember, it’s the system being evaluated, not you.
+        Good luck!
+      </p>
       <div className="d-flex justify-content-center gap-2 mt-3">
-        <Button variant="outline-secondary" onClick={onBack} className="rounded-4"><FiArrowLeft className="me-1"/> Back</Button>
-        <Button variant="dark" onClick={onStart} className="rounded-4">Start Study</Button>
+        <Button variant="outline-secondary" onClick={onBack} className="rounded-4">
+          <FiArrowLeft className="me-1" /> Back
+        </Button>
+        <Button variant="dark" onClick={onStart} className="rounded-4">
+          Start Study
+        </Button>
       </div>
     </section>
   );

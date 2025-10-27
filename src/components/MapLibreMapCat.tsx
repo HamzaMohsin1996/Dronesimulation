@@ -1,12 +1,6 @@
 // src/components/pages/ReengagementMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import mapboxgl, {
-  Map as MapboxMap,
-  Marker,
-  GeoJSONSource,
-  MapMouseEvent,
-  Popup,
-} from 'mapbox-gl';
+import mapboxgl, { Map as MapboxMap, Marker, GeoJSONSource, MapMouseEvent, Popup } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 import * as turf from '@turf/turf';
@@ -96,7 +90,6 @@ export default function MapLibreMap() {
 
   type ScanMode = 'CLICK' | 'STREET' | 'FOI' | 'POI';
   const [scanMode, setScanMode] = useState<ScanMode>('CLICK'); // ✅ circle area by default
-  
 
   const [missionGeom, setMissionGeom] = useState<{
     kind: ScanMode;
@@ -159,7 +152,6 @@ export default function MapLibreMap() {
     Streets: 'mapbox://styles/mapbox/streets-v12',
     Satellite: 'mapbox://styles/mapbox/satellite-v9',
   } as const;
-  
 
   const toggleFilter = (label: DetectionEvent['label']) => {
     setActiveFilters((prev) => {
@@ -192,29 +184,28 @@ export default function MapLibreMap() {
   }, [missionActive]);
   useEffect(() => {
     if (!mapRef.current) return;
-  
+
     // Wait for layout transition to finish
     const timer = setTimeout(() => {
       mapRef.current!.resize();
     }, 300); // match your CSS transition time (0.3s)
-    
+
     return () => clearTimeout(timer);
   }, [showFeed]);
-  
+
   // ---------- Map init ----------
   useEffect(() => {
     if (!mapEl.current) return;
-  
+
     mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN as string;
-  
+
     const m = new mapboxgl.Map({
       container: mapEl.current,
       style: 'mapbox://styles/mapbox/streets-v12', // ✅ base style
       center: [11.506, 48.718],
       zoom: 13,
     });
-  
-  
+
     m.on('load', () => {
       console.log('✅ Mapbox loaded');
       initialDronePorts.forEach(({ coord }) => {
@@ -231,7 +222,7 @@ export default function MapLibreMap() {
         el.appendChild(img);
         new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(m);
       });
-  
+
       // --- SOURCES ---
       m.addSource('missionGeom', {
         type: 'geojson',
@@ -239,11 +230,19 @@ export default function MapLibreMap() {
       });
       m.addSource('covered', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
       });
       m.addSource('remaining', {
         type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} },
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [] },
+          properties: {},
+        },
       });
       m.addSource('annotations', {
         type: 'geojson',
@@ -256,7 +255,7 @@ export default function MapLibreMap() {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
-  
+
       // --- LAYERS ---
       m.addLayer({
         id: 'mission-fill',
@@ -265,7 +264,7 @@ export default function MapLibreMap() {
         filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.12 },
       });
-  
+
       m.addLayer({
         id: 'mission-outline',
         type: 'line',
@@ -273,21 +272,21 @@ export default function MapLibreMap() {
         filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
         paint: { 'line-color': '#0ea5e9', 'line-width': 2, 'line-dasharray': [2, 1] },
       });
-  
+
       m.addLayer({
         id: 'path-covered',
         type: 'line',
         source: 'covered',
         paint: { 'line-color': '#16a34a', 'line-width': 4 },
       });
-  
+
       m.addLayer({
         id: 'path-remaining',
         type: 'line',
         source: 'remaining',
         paint: { 'line-color': '#64748b', 'line-width': 3, 'line-dasharray': [2, 2] },
       });
-  
+
       m.addLayer({
         id: 'annots',
         type: 'circle',
@@ -312,7 +311,7 @@ export default function MapLibreMap() {
           'circle-stroke-width': 2,
         },
       });
-  
+
       m.addLayer({
         id: 'clusters',
         type: 'circle',
@@ -325,7 +324,7 @@ export default function MapLibreMap() {
           'circle-stroke-width': 2,
         },
       });
-  
+
       m.addLayer({
         id: 'cluster-count',
         type: 'symbol',
@@ -338,7 +337,7 @@ export default function MapLibreMap() {
         },
         paint: { 'text-color': '#fff' },
       });
-  
+
       m.addLayer({
         id: 'category-clusters',
         type: 'circle',
@@ -362,7 +361,7 @@ export default function MapLibreMap() {
           'circle-stroke-width': 2,
         },
       });
-  
+
       m.addLayer({
         id: 'category-icons',
         type: 'symbol',
@@ -385,7 +384,7 @@ export default function MapLibreMap() {
           'icon-allow-overlap': true,
         },
       });
-  
+
       m.addLayer({
         id: 'category-count',
         type: 'symbol',
@@ -405,11 +404,10 @@ export default function MapLibreMap() {
         },
       });
     });
-  
+
     mapRef.current = m;
     return () => m.remove();
   }, []);
-  
 
   // ---------- Mode → next map click defines target ----------
 
@@ -827,7 +825,7 @@ export default function MapLibreMap() {
             properties: {},
           });
 
-          // 🚀 Start scanning depending on mission type
+          //  Start scanning depending on mission type
           if (scanMode === 'CLICK') {
             startCircleScan(center);
           } else if (scanMode === 'STREET' && missionGeom?.line) {
@@ -1504,7 +1502,6 @@ export default function MapLibreMap() {
     }, 300); // matches your CSS transition (0.3s)
     return () => clearTimeout(t);
   }, [videoExpanded]);
-  
 
   // --- ✅ NEW: window focus/blur detection ---
   useEffect(() => {
@@ -1676,7 +1673,6 @@ export default function MapLibreMap() {
 
   return (
     <>
-      
       <div style={{ display: 'flex', height: 'calc(100vh - 65px)', width: '100vw' }}>
         {/* --- Event Feed Sidebar --- */}
 
@@ -1748,7 +1744,7 @@ export default function MapLibreMap() {
               transition: 'all 0.3s ease',
               borderRadius: videoExpanded ? 8 : 0,
               overflow: 'hidden',
-              zIndex: videoExpanded ? 3002 : 100 ,
+              zIndex: videoExpanded ? 3002 : 100,
             }}
           />
 
@@ -1848,7 +1844,7 @@ export default function MapLibreMap() {
                 zIndex: 2200,
               }}
             >
-              🚀 Start Mission
+              Start Mission
             </button>
           )}
 
@@ -1926,9 +1922,7 @@ export default function MapLibreMap() {
             />
             {/* Debug overlay for backend detections */}
           </div>
-          
         )}
-
       </div>
     </>
   );
