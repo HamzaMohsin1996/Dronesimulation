@@ -497,7 +497,7 @@ export default function EventTimeline({
 
           {/* Go Live */}
           <button className="tl-btn" onClick={goLive} title="G">
-            🔴 Live
+            Live
           </button>
         </div>
 

@@ -2072,6 +2072,11 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
             events={allEvents}
             missionActive={missionActive}
             unreadCount={unreadCount}
+            onStartMission={startMission}
+            onEndMission={resetMission}
+            onRemoveEvent={(id) => {
+              setAllEvents((prev) => prev.filter((e) => e.id !== id));
+            }}
             onSelect={(ev) => {
               setSelectedEventId(ev.id);
               mapRef.current?.flyTo({ center: ev.coord, zoom: 15 });
@@ -2228,7 +2233,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
           {/* --- View mode selector --- */}
 
           {/* Controls */}
-          {!missionActive && (
+          {/* {!missionActive && (
             <button
               disabled={
                 !missionGeom?.center ||
@@ -2252,9 +2257,9 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
             >
               Start Mission
             </button>
-          )}
+          )} */}
 
-          {(missionActive || dronePath.length > 0) && (
+          {/* {(missionActive || dronePath.length > 0) && (
             <button
               onClick={resetMission}
               style={{
@@ -2272,7 +2277,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
             >
               ⏹ End Mission
             </button>
-          )}
+          )} */}
         </main>
         <ReturnModal
           show={showReturnModal}
