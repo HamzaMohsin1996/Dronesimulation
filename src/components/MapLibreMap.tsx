@@ -2087,12 +2087,16 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
                 videoRef.current.seekTo(offset);
               }
 
-              // mark as read
               setAllEvents((prev) => prev.map((e) => (e.id === ev.id ? { ...e, seen: true } : e)));
             }}
             onMarkRead={(id) =>
               setAllEvents((prev) => prev.map((e) => (e.id === id ? { ...e, seen: true } : e)))
             }
+            // ✅ New props for the UAV status header
+            missionPhase={missionPhase}
+            etaText={etaText}
+            progressPct={progressPct}
+            scanMode={scanMode}
           />
         )}
 

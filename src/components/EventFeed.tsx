@@ -25,6 +25,10 @@ interface EventFeedProps {
   onStartMission?: () => void;
   onEndMission?: () => void;
   onRemoveEvent?: (id: string) => void;
+  missionPhase?: string;
+  etaText?: string | null;
+  progressPct?: number | null;
+  scanMode?: string;
 }
 
 export default function EventFeed({
@@ -36,6 +40,10 @@ export default function EventFeed({
   onMarkRead,
   onRemoveEvent,
   onSelect,
+  missionPhase = 'idle',
+  etaText = null,
+  progressPct = null,
+  scanMode = '',
 }: EventFeedProps) {
   const [filter, setFilter] = useState<string>('all');
 
@@ -62,6 +70,115 @@ export default function EventFeed({
         fontFamily: 'system-ui,sans-serif',
       }}
     >
+      {/* --- UAV Header --- */}
+      {/* --- UAV Status Header --- */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          background: '#101922',
+          borderRadius: '10px',
+          marginBottom: '14px',
+        }}
+      >
+        {/* Drone Avatar */}
+        <div
+          style={{
+            width: '52px',
+            height: '52px',
+            borderRadius: '50%',
+            backgroundImage:
+              'url("https://lh3.googleusercontent.com/aida-public/AB6AXuDOAWzzNrNmk9toqaCx7gNgqJOZNAUzrINENOWoHTfPCg1Q4_IOfwWYX-lLjNHPX1tPxLpiHtvnYflxuOz8_f9UnOAB4KHBfbOg_xp7jQCohzwABql7DekZ_oH6MNY5VdIpuaqcheG1V92zjpeCrRa8SZsC8M0GK6jEUvsKpH2ACZMLjeMBkVttuWoPKaj9hhuo6lmU4DWudfLU0aEyeZ-rqK5vxNi0lkmEWMnZi7fHfeeH3bLs3wg5CvTuAG5Nlg9HG_zgoK4YZrI")',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            flexShrink: 0,
+            boxShadow: '0 0 6px rgba(0,0,0,0.4)',
+          }}
+        ></div>
+
+        {/* Info Section */}
+        <div style={{ flex: 1 }}>
+          <h1
+            style={{
+              color: 'white',
+              fontSize: '18px',
+              fontWeight: 700,
+              margin: 0,
+            }}
+          >
+            UAV-734
+          </h1>
+
+          {/* Mission Phase Text */}
+          <div
+            style={{
+              fontWeight: 700,
+              color:
+                missionPhase === 'in-transit'
+                  ? '#0ea5e9'
+                  : missionPhase === 'scanning'
+                  ? '#16a34a'
+                  : missionPhase === 'returning'
+                  ? '#ca8a04'
+                  : '#6b7280',
+              marginTop: 2,
+              fontSize: '14px',
+            }}
+          >
+            {missionPhase === 'in-transit'
+              ? 'En route to target'
+              : missionPhase === 'scanning'
+              ? 'Drone on station'
+              : missionPhase === 'returning'
+              ? 'Returning to base'
+              : 'Idle'}
+          </div>
+
+          {/* Subtext / ETA / Scan mode */}
+          <div
+            style={{
+              fontSize: 13,
+              color: '#92adc9',
+              marginTop: 2,
+            }}
+          >
+            {missionPhase === 'in-transit' && etaText
+              ? etaText
+              : missionPhase === 'scanning'
+              ? `Performing ${scanMode} scan...`
+              : missionPhase === 'returning'
+              ? 'Scan complete — navigation to base in progress...'
+              : 'Awaiting new mission'}
+          </div>
+
+          {/* Progress bar (only during transit) */}
+          {missionPhase === 'in-transit' && progressPct !== null && (
+            <div
+              style={{
+                marginTop: 6,
+                height: 6,
+                background: '#1e293b',
+                borderRadius: 4,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${progressPct}%`,
+                  background: '#0ea5e9',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ---- Header ---- */}
       <header
         style={{
