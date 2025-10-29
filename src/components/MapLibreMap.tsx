@@ -24,6 +24,8 @@ import { iconMap } from '../shared/iconMap';
 import RecapPanel from './RecapPanel';
 import { useReengagement } from './useReengagement';
 import PegmanControl from './PegmanIcon';
+import useUnityStream from './useUnityStream';
+
 
 
 // ---------------- Config ----------------
@@ -60,6 +62,7 @@ export default function MapLibreMap({ setConnectionStatus }: IndividualMapProps)
   const originPortRef = useRef<DronePort | null>(null);
 
   const videoRef = useRef<VideoReviewHandle | null>(null);
+  const { unityVideoRef, connected } = useUnityStream("ws://localhost/ws");
   const arrivalRef = useRef<number | null>(null);
 
   const [scanMode, setScanMode] = useState<ScanMode>('CLICK'); // ✅ circle area by default
@@ -2204,6 +2207,17 @@ function makeFovRect(center: Coord, heading: number): Feature<Polygon> {
             <PegmanControl enabled={missionActive || allEvents.length > 0} onDropOnMap={handlePegmanDrop} />
 
           </div>
+          <div style={{ textAlign: "center", position: 'fixed',left:'30px',bottom: '100px',zIndex: '100000' }}>
+      <h2>{connected ? "✅ Connected to Unity Stream" : "🕒 Waiting for Unity..."}</h2>
+      <video
+        ref={unityVideoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{ width: "100%", maxWidth: "800px", background: "black" }}
+      />
+    </div>
+
 
           {/* Video Review — shown only when mission active */}
           {missionActive && (
