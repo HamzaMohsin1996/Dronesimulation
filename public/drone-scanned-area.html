@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>UAV Mission Control</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#00c7c7",
+                        "background-light": "#f5f8f8",
+                        "background-dark": "#0B132B",
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .radar-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            height: 500px;
+        }
+        .radar-sweep {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: conic-gradient(from 0deg, rgba(33, 150, 243, 0.2), #00c7c7, rgba(33, 150, 243, 0.2) 25%, transparent 25%);
+            border-radius: 50%;
+            mask-image: radial-gradient(circle at center, black 0%, black 100%, transparent 100%);
+            animation: sweep 4s linear infinite;
+        }
+        .heatmap-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(0, 200, 200, 0.25) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: pulse 3s infinite ease-in-out;
+        }
+        @keyframes sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.7; }
+            50% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.7; }
+        }
+    </style>
+</head>
+<body class="bg-background-dark font-display">
+<div class="relative flex h-screen w-full flex-col text-white group/design-root overflow-hidden">
+<header class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between whitespace-nowrap border-b border-solid border-b-white/10 px-6 py-3 bg-background-dark/50 backdrop-blur-sm">
+<div class="flex items-center gap-4">
+<div class="size-6 text-primary">
+<span class="material-symbols-outlined !text-3xl">track_changes</span>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-[-0.015em]">UAV Mission Control</h2>
+</div>
+<div class="flex flex-1 justify-center gap-8">
+<div class="flex items-center gap-9">
+<a class="text-white text-sm font-medium leading-normal" href="#">Dashboard</a>
+<a class="text-primary text-sm font-bold leading-normal border-b-2 border-primary pb-1" href="#">Missions</a>
+<a class="text-white text-sm font-medium leading-normal" href="#">Analytics</a>
+<a class="text-white text-sm font-medium leading-normal" href="#">Reports</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 px-4 bg-red-600 hover:bg-red-700 text-white text-sm font-bold leading-normal tracking-[0.015em]">
+<span class="truncate">End Mission</span>
+</button>
+<button class="flex max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 bg-white/10 hover:bg-white/20 text-white gap-2 text-sm font-bold leading-normal tracking-[0.015em] min-w-0 px-2.5">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="flex max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 bg-white/10 hover:bg-white/20 text-white gap-2 text-sm font-bold leading-normal tracking-[0.015em] min-w-0 px-2.5">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10" data-alt="User avatar" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDxpm88O5EfuHnn4u6bGHlkDucdeddh-I2jlwGmZQBqtEdzXd1tMMQSbZAdiN6b9njD7IkLBv8rezB1ss3LaDibZHm_bn8gQjXM3gNHfaz2osbj0EjuDEweZWNGaKH5vw-QnTnITz-tEO0KBFFA7wTcvJR0JzUuiQIGUy4g4NP8d3zJmRgOenvRG_yNI0tNfRxIrUEH3IbFzs7GbdVOAqSVvXTIITFoUOvCRoXRWDVHZxVEtIn-YLve0zMbpix8iwjpRVW_HkoRrQ");'></div>
+</div>
+</header>
+<main class="flex-1 flex flex-col relative">
+<div class="absolute inset-0 bg-cover bg-center" data-alt="Dark topographical map of a mountainous region" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDY49SFJuPAwzGYgo2X7W6J1CuNRqk_kprhbeAN18n5_nMHkPoInAh-XAgE7cK9k2iK3w60qDWmAw63b5W8aOROYMMqRpBn7SZB8jS_TG4FVUjE0VqSSrKL5TGJGk7lwfa1l8bn27UKkL_ctvAuqGb62tcRiCYLTlZtFTcLTFeiP_dRT9QpGYdhHu2jl4BKJqEVJMbTqpgj3xXzI5yHdqNXsHtNfv9ZMSJ12SEwsjs37wVvUWPIfjEBkS4sdIZnn-wfrKpU1xn3iQ");'>
+<div class="absolute inset-0 bg-background-dark opacity-80"></div>
+</div>
+<!-- Radar Visualization -->
+<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+<div class="heatmap-glow"></div>
+<div class="radar-container">
+<div class="radar-sweep"></div>
+</div>
+<div class="flex flex-col items-center justify-center text-primary">
+<span class="material-symbols-outlined !text-5xl drop-shadow-[0_0_10px_#00c7c7]">airplanemode_active</span>
+<p class="text-xs font-bold uppercase tracking-widest drop-shadow-[0_0_5px_#00c7c7]">UAV-FF-01</p>
+</div>
+</div>
+<!-- Map Controls -->
+<div class="absolute top-24 right-6 flex flex-col items-end gap-3 z-10">
+<div class="flex flex-col gap-px">
+<button class="flex size-10 items-center justify-center rounded-t-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 shadow-[0_2px_4px_rgba(0,0,0,0.1)]">
+<span class="material-symbols-outlined">add</span>
+</button>
+<button class="flex size-10 items-center justify-center rounded-b-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 shadow-[0_2px_4px_rgba(0,0,0,0.1)]">
+<span class="material-symbols-outlined">remove</span>
+</button>
+</div>
+<button class="flex size-10 items-center justify-center rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 shadow-[0_2px_4px_rgba(0,0,0,0.1)]">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+</div>
+<!-- Info Overlay Panel -->
+<div class="absolute bottom-6 left-6 z-10 w-[360px] rounded-xl bg-black/40 backdrop-blur-sm border border-white/10 shadow-lg">
+<div class="p-4">
+<div class="grid grid-cols-2 gap-x-2">
+<div class="flex flex-col gap-1 border-t border-solid border-t-white/20 py-3 pr-2">
+<p class="text-white/60 text-sm font-normal leading-normal">Drone ID</p>
+<p class="text-white text-base font-medium leading-normal">UAV-FF-01</p>
+</div>
+<div class="flex flex-col gap-1 border-t border-solid border-t-white/20 py-3 pl-2">
+<p class="text-white/60 text-sm font-normal leading-normal">Altitude</p>
+<p class="text-white text-base font-medium leading-normal">350m</p>
+</div>
+<div class="flex flex-col gap-1 border-t border-solid border-t-white/20 py-3 pr-2">
+<p class="text-white/60 text-sm font-normal leading-normal">Ground Speed</p>
+<p class="text-white text-base font-medium leading-normal">45 km/h</p>
+</div>
+<div class="flex flex-col gap-1 border-t border-solid border-t-white/20 py-3 pl-2">
+<p class="text-white/60 text-sm font-normal leading-normal">Signal Strength</p>
+<p class="text-white text-base font-medium leading-normal">95%</p>
+</div>
+<div class="flex flex-col gap-1 border-t border-solid border-t-white/20 py-3 pr-2 col-span-2">
+<p class="text-white/60 text-sm font-normal leading-normal">Scan Pattern</p>
+<p class="text-white text-base font-medium leading-normal">360° Sweep / 15 RPM</p>
+</div>
+</div>
+</div>
+<div class="px-4 pb-4">
+<div class="flex flex-col gap-2">
+<div class="flex justify-between">
+<p class="text-white text-base font-medium leading-normal">Battery Life</p>
+<p class="text-primary font-bold">78%</p>
+</div>
+<div class="rounded-full bg-white/20 h-2"><div class="h-2 rounded-full bg-primary" style="width: 78%;"></div></div>
+</div>
+</div>
+</div>
+<!-- Toolbar -->
+<div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center justify-between gap-2 px-4 py-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-xl">
+<div class="flex gap-2">
+<button class="p-3 rounded-lg hover:bg-white/10 text-white">
+<span class="material-symbols-outlined">pause</span>
+</button>
+<button class="p-3 rounded-lg hover:bg-white/10 text-white">
+<span class="material-symbols-outlined">track_changes</span>
+</button>
+<button class="p-3 rounded-lg hover:bg-white/10 text-white">
+<span class="material-symbols-outlined">zoom_in_map</span>
+</button>
+<button class="p-3 rounded-lg hover:bg-white/10 text-white">
+<span class="material-symbols-outlined">layers</span>
+</button>
+</div>
+<div class="h-8 w-px bg-white/20 mx-2"></div>
+<button class="flex max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-10 bg-primary/90 hover:bg-primary text-background-dark gap-2 text-sm font-bold leading-normal tracking-[0.015em] min-w-0 px-4">
+<span class="material-symbols-outlined !text-xl font-semibold">add_location_alt</span>
+<span class="truncate">Mark Hotspot</span>
+</button>
+</div>
+</main>
+</div>
+</body></html>
